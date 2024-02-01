@@ -38,6 +38,7 @@ app.get('/', (req, res) => {
 
 let connectedSockets = {}
 let users = {}
+let matchingArray = []
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room) {
@@ -128,12 +129,54 @@ function updateHistoryPeekUsers(count) {
     });
 }
 
+const crypto = require('crypto');
+
+function generateRoomId(socketId1, socketId2) {
+    // Combine the two socket IDs into a single string
+    const combinedSocketId = `${socketId1}-${socketId2}`;
+
+    // Create a hash of the combined socket ID using SHA-256 algorithm
+    const hash = crypto.createHash('sha256');
+    hash.update(combinedSocketId);
+
+    // Get the hexadecimal representation of the hash
+    const hashedSocketId = hash.digest('hex');
+
+    // Return the first 16 characters of the hashed socket ID
+    // to ensure a reasonable length for a Socket ID
+    return hashedSocketId.slice(0, 16);
+}
+
+function negotiationDeviceType(socket, anotherSocket) {
+    let roomDType, bWidth, bHeight;
+    let deviceType = socket.deviceType;
+    let boardWidth = socket.boardWidth;
+    let boardHeight = socket.boardHeight;
+    anotherDeviceType = users[anotherSocket.id].deviceType;
+    if (deviceType < anotherDeviceType) {
+        roomDType = deviceType;
+        bWidth = boardWidth;
+        bHeight = boardHeight;
+    }
+    else {
+        roomDType = anotherDeviceType;
+        bWidth = users[anotherSocket.id].boardWidth;
+        bHeight = users[anotherSocket.id].boardHeight;
+    }
+    return { roomDType, bWidth, bHeight };
+}
+
+function negotiationPieceType() {
+    return Math.random() > 0.5 ? [Piece_Type_Black, Piece_Type_White] :
+        [Piece_Type_White, Piece_Type_Black];
+}
 
 io.on('connection', async (socket) => {
     console.log(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
     connectedSockets[socket.id] = socket;
 
+    // 在线人数统计
     let currentHeadCount = getCurrentHeadCount();
     getHistoryPeekUsers()
         .then(({ peek, timestamp }) => {
@@ -151,8 +194,6 @@ io.on('connection', async (socket) => {
         .catch(err => {
             console.error('查询失败:', err);
         });
-
-
 
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight }) => {
@@ -194,50 +235,47 @@ io.on('connection', async (socket) => {
             socket.emit('setItemSeed', seeds);
             anotherSocket.emit('setItemSeed', seeds);
 
-            // 设置房间设备类型
-            let roomDType, bWidth, bHeight;
-            anotherDeviceType = users[anotherSocket.id].deviceType;
-            if (deviceType < anotherDeviceType) {
-                roomDType = deviceType;
-                bWidth = boardWidth;
-                bHeight = boardHeight;
-            }
-            else {
-                roomDType = anotherDeviceType;
-                bWidth = users[anotherSocket.id].boardWidth;
-                bHeight = users[anotherSocket.id].boardHeight;
-            }
+            // 协商房间设备类型
+            const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
             io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
         }
     });
 
     // 监听匹配房间请求
     socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight }) => {
-        // 获取当前所有存在的房间
-        const activeRooms = io.sockets.adapter.rooms;
-        // 遍历房间并输出房间名称
-        activeRooms.forEach((value, key) => {
-            console.log('Room:', key);
-        });
-
-        await socket.join();
         users[socket.id] = {
-            nickName: nickName,
-            roomId: roomId,
+            nickName: socket.id,
+            roomId: undefined,
             deviceType: deviceType,
             boardWidth: boardWidth,
             boardHeight: boardHeight,
         };
-        const roomSize = getRoomUserCount(roomId);
-        if (roomSize === 1) {
-            socket.emit('message', '创建房间 ' + roomId);
-            socket.emit('message', nickName + ' 进入房间');
-            socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
 
-        } else if (roomSize === 2) {
-
+        if (matchingArray.length === 0) {
+            matchingArray.push(socket.id);
         }
-    })
+        else {
+            const anotherSocketId = matchingArray.shift();
+            const anotherSocket = connectedSockets[anotherSocketId];
+            const roomId = generateRoomId(socket.id, anotherSocket.id);
+            await socket.join(roomId);
+            await anotherSocket.join(roomId);
+            users[socket.id].roomId = roomId;
+            users[anotherSocket.id].roomId = roomId;
+            const pieces = negotiationPieceType();
+            socket.emit('setPieceType', pieces[0]);
+            anotherSocket.emit('setPieceType', pieces[1]);
+            io.to(roomId).emit('message', ' 游戏开始：' + users[socket.id].nickName + ' 执 ' + pieces[0]
+                + '，' + users[anotherSocket.id].nickName + ' 执 ' + pieces[1]);
+            const seeds = generateSeeds();
+            io.to(roomId).emit('setItemSeed', seeds);
+            const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
+            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+            // 房间号
+            io.to(roomId).emit('matchedRoomId', roomId);
+            io.to(roomId).emit('broadcast', '匹配成功');
+        }
+    });
 
     // 监听点击棋盘位置，转发给其他用户
     socket.on('step', ({ i, j }) => {
