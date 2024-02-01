@@ -149,9 +149,9 @@ function generateRoomId(socketId1, socketId2) {
 
 function negotiationDeviceType(socket, anotherSocket) {
     let roomDType, bWidth, bHeight;
-    let deviceType = socket.deviceType;
-    let boardWidth = socket.boardWidth;
-    let boardHeight = socket.boardHeight;
+    let deviceType = users[socket.id].deviceType;
+    let boardWidth = users[socket.id].boardWidth;
+    let boardHeight = users[socket.id].boardHeight;
     anotherDeviceType = users[anotherSocket.id].deviceType;
     if (deviceType < anotherDeviceType) {
         roomDType = deviceType;
