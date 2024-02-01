@@ -297,6 +297,7 @@ io.on('connection', async (socket) => {
         console.log(`Client disconnected: ${socket.id}`);
         delete connectedSockets[socket.id];
         delete users[socket.id];
+        matchingArray = matchingArray.filter(item => item !== socket.id);
 
         let currentHeadCount = getCurrentHeadCount();
         io.emit('currentHeadCount', currentHeadCount);
