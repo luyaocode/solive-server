@@ -1,6 +1,24 @@
+// Const Define
 const Piece_Type_Black = '●';
 const Piece_Type_White = '○';
+const DeviceType = {
+    UNKNOWN: 0,
+    MOBILE: 1,
+    PC: 2,
+}
+const ErrorCode = {
+    ROOM_ERR: 1000,
+}
 
+// SQLite
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('chaos-gomoku.db');
+db.serialize(() => {
+    const createSystemTable = "CREATE TABLE IF NOT EXISTS system (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);";
+    db.run(createSystemTable);
+});
+
+// Server
 const express = require('express');
 const http = require('http');
 const app = express();
@@ -17,10 +35,9 @@ app.get('/', (req, res) => {
     res.send('Hello, World!'); // 返回一个简单的响应
 });
 
+
 let connectedSockets = {}
-
 let users = {}
-
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room) {
@@ -74,17 +91,78 @@ function getAnotherSocketInRoom(currentSocket) {
     return anotherSocket;
 }
 
+function getCurrentHeadCount() {
+    return io.sockets.sockets.size;
+}
+
+function getHistoryPeekUsers() {
+    return new Promise((resolve, reject) => {
+        let peek, timestamp;
+        db.serialize(() => {
+            db.get("SELECT MAX(history_peek_users) AS historyPeekUsers,MAX(timestamp) AS timestamp FROM system", (err, row) => {
+                if (err) {
+                    reject(err);
+                }
+                if (row) {
+                    peek = row.historyPeekUsers;
+                    timestamp = row.timestamp;
+                    resolve({ peek, timestamp });
+                } else {
+                    console.log('没有找到历史最高在线人数记录');
+                    resolve({ historyPeekUsers: 0, timestamp: null });
+                }
+            });
+        });
+    });
+}
+
+function updateHistoryPeekUsers(count) {
+    const timestamp = new Date().toISOString();
+    db.serialize(() => {
+        db.run("INSERT INTO system (history_peek_users, timestamp) VALUES (?, ?)", [count, timestamp], function (err) {
+            if (err) {
+                return console.error(err.message);
+            }
+            console.log(`A row has been inserted with rowid ${this.lastID}`);
+        });
+    });
+}
+
+
 io.on('connection', async (socket) => {
-    console.log(`Client connected: ${socket.id}`); // 打印客户端连接信息
+    console.log(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
     connectedSockets[socket.id] = socket;
 
+    let currentHeadCount = getCurrentHeadCount();
+    getHistoryPeekUsers()
+        .then(({ peek, timestamp }) => {
+            let historyPeekUsers;
+            if (currentHeadCount > peek) {
+                updateHistoryPeekUsers(currentHeadCount);
+                historyPeekUsers = currentHeadCount;
+            }
+            else {
+                historyPeekUsers = peek;
+            }
+            io.emit('currentHeadCount', currentHeadCount);
+            io.emit('historyPeekUsers', historyPeekUsers);
+        })
+        .catch(err => {
+            console.error('查询失败:', err);
+        });
+
+
+
     // 监听加入房间请求
-    socket.on('joinRoom', async ({ roomId, nickName }) => {
+    socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight }) => {
         await socket.join(roomId);
         users[socket.id] = {
             nickName: nickName,
             roomId: roomId,
+            deviceType: deviceType,
+            boardWidth: boardWidth,
+            boardHeight: boardHeight,
         };
         const roomSize = getRoomUserCount(roomId);
         if (roomSize === 1) {
@@ -98,9 +176,14 @@ io.on('connection', async (socket) => {
             let user1PieceType = Math.random() > 0.5 ? Piece_Type_Black : Piece_Type_White;
             let user2PieceType = user1PieceType === Piece_Type_Black ? Piece_Type_White : Piece_Type_Black;
             const otherSockets = getOtherSocketsInRoom(roomId, socket);
+            if (otherSockets.length <= 0) {
+                socket.emit('error', ErrorCode.ROOM_ERR);
+                return;
+            }
+            const anotherSocket = otherSockets[0];
             socket.emit('setPieceType', user2PieceType);
-            otherSockets[0].emit('setPieceType', user1PieceType);
-            let otherUserNickName = users[otherSockets[0].id].nickName;
+            anotherSocket.emit('setPieceType', user1PieceType);
+            let otherUserNickName = users[anotherSocket.id].nickName;
             socket.emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
                 + '，' + otherUserNickName + ' 执 ' + user1PieceType);
             socket.to(roomId).emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
@@ -109,9 +192,52 @@ io.on('connection', async (socket) => {
             // 生成道具中
             const seeds = generateSeeds();
             socket.emit('setItemSeed', seeds);
-            otherSockets[0].emit('setItemSeed', seeds);
+            anotherSocket.emit('setItemSeed', seeds);
+
+            // 设置房间设备类型
+            let roomDType, bWidth, bHeight;
+            anotherDeviceType = users[anotherSocket.id].deviceType;
+            if (deviceType < anotherDeviceType) {
+                roomDType = deviceType;
+                bWidth = boardWidth;
+                bHeight = boardHeight;
+            }
+            else {
+                roomDType = anotherDeviceType;
+                bWidth = users[anotherSocket.id].boardWidth;
+                bHeight = users[anotherSocket.id].boardHeight;
+            }
+            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
         }
     });
+
+    // 监听匹配房间请求
+    socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight }) => {
+        // 获取当前所有存在的房间
+        const activeRooms = io.sockets.adapter.rooms;
+        // 遍历房间并输出房间名称
+        activeRooms.forEach((value, key) => {
+            console.log('Room:', key);
+        });
+
+        await socket.join();
+        users[socket.id] = {
+            nickName: nickName,
+            roomId: roomId,
+            deviceType: deviceType,
+            boardWidth: boardWidth,
+            boardHeight: boardHeight,
+        };
+        const roomSize = getRoomUserCount(roomId);
+        if (roomSize === 1) {
+            socket.emit('message', '创建房间 ' + roomId);
+            socket.emit('message', nickName + ' 进入房间');
+            socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
+
+        } else if (roomSize === 2) {
+
+        }
+    })
 
     // 监听点击棋盘位置，转发给其他用户
     socket.on('step', ({ i, j }) => {
@@ -133,6 +259,9 @@ io.on('connection', async (socket) => {
         console.log(`Client disconnected: ${socket.id}`);
         delete connectedSockets[socket.id];
         delete users[socket.id];
+
+        let currentHeadCount = getCurrentHeadCount();
+        io.emit('currentHeadCount', currentHeadCount);
     });
 });
 
