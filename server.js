@@ -244,6 +244,8 @@ io.on('connection', async (socket) => {
             // 协商房间设备类型
             const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
             io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+
+            io.to(roomId).emit('joined');
         }
     });
 
@@ -319,13 +321,18 @@ io.on('connection', async (socket) => {
 
     // 监听客户端断开连接事件
     socket.on('disconnect', () => {
-        socket.broadcast.emit('callEnded');
+        if (users[socket.id] && users[socket.id].roomId) {
+            const roomId = users[socket.id].roomId;
+            const nickName = users[socket.id].nickName;
+            io.to(roomId).emit('playerDisconnected', nickName + '断开连接');
+        }
         console.log(`Client disconnected: ${socket.id}`);
         delete connectedSockets[socket.id];
         delete users[socket.id];
         matchingArray = matchingArray.filter(item => item !== socket.id);
         let currentHeadCount = getCurrentHeadCount();
         io.emit('currentHeadCount', currentHeadCount);
+
     });
 });
 
