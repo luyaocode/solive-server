@@ -293,7 +293,7 @@ io.on('connection', async (socket) => {
         const nickName = users[socket.id].nickName;
         socket.leave(roomId);
         users[socket.id].roomId = undefined;
-        io.to(roomId).emit('message', nickName + '离开房间');
+        io.to(roomId).emit('playerLeaveRoom', nickName + '离开房间');
     });
 
     // 监听点击棋盘位置，转发给其他用户
