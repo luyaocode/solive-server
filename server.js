@@ -10,6 +10,13 @@ const ErrorCode = {
     ROOM_ERR: 1000,
 }
 
+const GameMode = {
+    MODE_NONE: 0,
+    MODE_SIGNAL: 1,
+    MODE_MATCH: 2,
+    MODE_ROOM: 3,
+}
+
 // SQLite
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('chaos-gomoku.db');
@@ -210,7 +217,6 @@ io.on('connection', async (socket) => {
             socket.emit('message', '创建房间 ' + roomId);
             socket.emit('message', nickName + ' 进入房间');
             socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
-
         } else if (roomSize === 2) {
             socket.emit('message', nickName + ' 进入房间 ');
             socket.to(roomId).emit('broadcast', nickName + ' 进入房间 ');
@@ -277,6 +283,19 @@ io.on('connection', async (socket) => {
         }
     });
 
+
+    socket.on('exitMatching', () => {
+        matchingArray.splice(socket.id, 1);
+    });
+
+    socket.on('leaveRoom', () => {
+        const roomId = users[socket.id].roomId;
+        const nickName = users[socket.id].nickName;
+        socket.leave(roomId);
+        users[socket.id].roomId = undefined;
+        io.to(roomId).emit('message', nickName + '离开房间');
+    });
+
     // 监听点击棋盘位置，转发给其他用户
     socket.on('step', ({ i, j }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
@@ -291,6 +310,13 @@ io.on('connection', async (socket) => {
 
     // 监听离开房间事件
 
+    // 监听重来一局事件
+    socket.on('restart', () => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        const nickName = users[socket.id].nickName;
+        anotherSocket.emit('restart_request', { gameMode, nickName });
+    });
+
     // 监听客户端断开连接事件
     socket.on('disconnect', () => {
         socket.broadcast.emit('callEnded');
@@ -298,7 +324,6 @@ io.on('connection', async (socket) => {
         delete connectedSockets[socket.id];
         delete users[socket.id];
         matchingArray = matchingArray.filter(item => item !== socket.id);
-
         let currentHeadCount = getCurrentHeadCount();
         io.emit('currentHeadCount', currentHeadCount);
     });
