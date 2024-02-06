@@ -334,15 +334,20 @@ io.on('connection', async (socket) => {
         }
     });
 
+    socket.on('skipRound', () => {
+        const roomId = users[socket.id].roomId;
+        if (roomId) {
+            io.to(roomId).emit('skipRound');
+        }
+    });
 
     // 监听重来一局事件
     socket.on('restart', ({ gameMode, gameOver }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
-        if (anotherSocket === undefined) {
-            return;
+        if (anotherSocket !== undefined && anotherSocket.connected) {
+            const nickName = users[socket.id].nickName;
+            anotherSocket.emit('restart_request', { gameMode, nickName, gameOver });
         }
-        const nickName = users[socket.id].nickName;
-        anotherSocket.emit('restart_request', { gameMode, nickName, gameOver });
     });
 
     socket.on('restart_response', (resp) => {
