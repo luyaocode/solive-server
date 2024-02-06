@@ -137,6 +137,8 @@ function updateHistoryPeekUsers(count) {
 }
 
 const crypto = require('crypto');
+const { Socket } = require('dgram');
+const { emit } = require('process');
 
 function generateRoomId(socketId1, socketId2) {
     // Combine the two socket IDs into a single string
@@ -176,6 +178,27 @@ function negotiationDeviceType(socket, anotherSocket) {
 function negotiationPieceType() {
     return Math.random() > 0.5 ? [Piece_Type_Black, Piece_Type_White] :
         [Piece_Type_White, Piece_Type_Black];
+}
+
+function restartGame(socket) {
+    const anotherSocket = getAnotherSocketInRoom(socket);
+    const pieces = negotiationPieceType();
+    const user1PieceType = pieces[0];
+    const user2PieceType = pieces[1];
+    const roomId = users[socket.id].roomId;
+    socket.emit('setPieceType', user1PieceType);
+    anotherSocket.emit('setPieceType', user2PieceType);
+    const nickName = users[socket.id].nickName;
+    const otherUserNickName = users[anotherSocket.id].nickName;
+    io.to(roomId).emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
+        + '，' + otherUserNickName + ' 执 ' + user1PieceType);
+    // 生成道具中
+    const seeds = generateSeeds();
+    io.to(roomId).emit('setItemSeed', seeds);
+
+    // 协商房间设备类型
+    const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
+    io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
 }
 
 io.on('connection', async (socket) => {
@@ -290,6 +313,7 @@ io.on('connection', async (socket) => {
         matchingArray.splice(socket.id, 1);
     });
 
+    // 监听离开房间事件
     socket.on('leaveRoom', () => {
         const roomId = users[socket.id].roomId;
         const nickName = users[socket.id].nickName;
@@ -310,13 +334,30 @@ io.on('connection', async (socket) => {
         }
     });
 
-    // 监听离开房间事件
 
     // 监听重来一局事件
-    socket.on('restart', () => {
+    socket.on('restart', ({ gameMode, gameOver }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined) {
+            return;
+        }
         const nickName = users[socket.id].nickName;
-        anotherSocket.emit('restart_request', { gameMode, nickName });
+        anotherSocket.emit('restart_request', { gameMode, nickName, gameOver });
+    });
+
+    socket.on('restart_response', (resp) => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined) {
+            return;
+        }
+        const roomId = users[socket.id].roomId;
+        io.to(roomId).emit('restart_resp', { resp });
+        if (resp) {
+            setTimeout(() => {
+                restartGame(socket);
+                io.to(roomId).emit('message', '重新开局');
+            }, 3000);
+        }
     });
 
     // 监听客户端断开连接事件
