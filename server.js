@@ -351,7 +351,8 @@ io.on('connection', async (socket) => {
             return;
         }
         const roomId = users[socket.id].roomId;
-        io.to(roomId).emit('restart_resp', { resp });
+        const socketId = socket.id;
+        io.to(roomId).emit('restart_resp', { resp, socketId });
         if (resp) {
             setTimeout(() => {
                 restartGame(socket);
