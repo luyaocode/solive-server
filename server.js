@@ -325,13 +325,12 @@ io.on('connection', async (socket) => {
     // 监听点击棋盘位置，转发给其他用户
     socket.on('step', ({ i, j }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
-        if (anotherSocket) {
-            anotherSocket.emit('step', { i, j });
-            console.log(users[socket.id].nickName + ': ' + i + ',' + j)
-        }
-        else {
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
             socket.emit("message", '对方网络未连接');
+            return;
         }
+        anotherSocket.emit('step', { i, j });
+        console.log(users[socket.id].nickName + ': ' + i + ',' + j)
     });
 
     socket.on('skipRound', () => {
@@ -344,15 +343,16 @@ io.on('connection', async (socket) => {
     // 监听重来一局事件
     socket.on('restart', ({ gameMode, gameOver }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
-        if (anotherSocket !== undefined && anotherSocket.connected) {
-            const nickName = users[socket.id].nickName;
-            anotherSocket.emit('restart_request', { gameMode, nickName, gameOver });
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
+            return;
         }
+        const nickName = users[socket.id].nickName;
+        anotherSocket.emit('restart_request', { gameMode, nickName, gameOver });
     });
 
     socket.on('restart_response', (resp) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
-        if (anotherSocket === undefined) {
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
             return;
         }
         const roomId = users[socket.id].roomId;
@@ -363,6 +363,33 @@ io.on('connection', async (socket) => {
                 restartGame(socket);
                 io.to(roomId).emit('message', '重新开局');
             }, 3000);
+        }
+    });
+
+    // 监听悔棋事件
+    socket.on('undoRoundRequest', () => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
+            return;
+        }
+        anotherSocket.emit('undoRoundRequest');
+    });
+
+    socket.on('undoRoundResponse', (resp) => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined) {
+            return;
+        }
+        const roomId = users[socket.id].roomId;
+        const socketId = socket.id;
+        io.to(roomId).emit('undoRound', { resp, socketId });
+    });
+
+    // 监听还原事件
+    socket.on('redoRoundRequest', () => {
+        const roomId = users[socket.id].roomId;
+        if (roomId) {
+            io.to(roomId).emit('redoRound');
         }
     });
 
