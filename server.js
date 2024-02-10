@@ -1,3 +1,5 @@
+const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info } = require('./ConstDefine.js');
+
 // Const Define
 const Piece_Type_Black = '●';
 const Piece_Type_White = '○';
@@ -21,9 +23,125 @@ const GameMode = {
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('chaos-gomoku.db');
 db.serialize(() => {
-    const createSystemTable = "CREATE TABLE IF NOT EXISTS system (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);";
-    db.run(createSystemTable);
+    const create_table_system = `CREATE TABLE IF NOT EXISTS ${Table_System} (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`;
+    const create_table_client_ips = `CREATE TABLE IF NOT EXISTS ${Table_Client_Ips} (id INTEGER PRIMARY KEY AUTOINCREMENT, ipAddress TEXT, connectionTime DATETIME)`;
+    const create_table_game_info = `CREATE TABLE IF NOT EXISTS ${Table_Game_Info} (
+        gameId INTEGER PRIMARY KEY AUTOINCREMENT,
+        roomId TEXT,
+        socket1 TEXT,
+        socket2 TEXT,
+        dType INTEGER,
+        scale TEXT,
+        createTime DATETIME
+    )`;
+    const create_table_step_info = `CREATE TABLE IF NOT EXISTS ${Table_Step_Info} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gameId INTEGER,
+        x INTEGER,
+        y INTEGER,
+        currItem TEXT,
+        nextItem TEXT,
+        currentTime DATETIME,
+        FOREIGN KEY (gameId) REFERENCES game_info(gameId)
+    )`;
+    db.run(create_table_system);
+    db.run(create_table_client_ips);
+    db.run(create_table_game_info);
+    db.run(create_table_step_info);
 });
+
+function getHistoryPeekUsers() {
+    return new Promise((resolve, reject) => {
+        let peek, timestamp;
+        db.serialize(() => {
+            db.get("SELECT MAX(history_peek_users) AS historyPeekUsers,MAX(timestamp) AS timestamp FROM system", (err, row) => {
+                if (err) {
+                    reject(err);
+                }
+                if (row) {
+                    peek = row.historyPeekUsers;
+                    timestamp = row.timestamp;
+                    resolve({ peek, timestamp });
+                } else {
+                    console.log('没有找到历史最高在线人数记录');
+                    resolve({ historyPeekUsers: 0, timestamp: null });
+                }
+            });
+        });
+    });
+}
+
+function updateHistoryPeekUsers(count) {
+    const timestamp = new Date().toISOString();
+    db.serialize(() => {
+        db.run("INSERT INTO system (history_peek_users, timestamp) VALUES (?, ?)", [count, timestamp], function (err) {
+            if (err) {
+                return console.error(err.message);
+            }
+        });
+    });
+}
+
+// 插入
+function insertStepInfo(gameId, x, y, currItem, nextItem) {
+    const insertQuery = `INSERT INTO ${Table_Step_Info} (gameId, x, y, currItem, nextItem, currentTime) VALUES (?, ?, ?, ?, ?, ?)`;
+    const currentTime = new Date().toISOString();
+    db.run(insertQuery, [gameId, x, y, currItem, nextItem, currentTime], (err) => {
+        if (err) {
+            console.error('Error inserting data:', err);
+        }
+    });
+}
+
+// 插入game_info表
+function insertGameInfo(roomId, socket1, socket2, dType, scale) {
+    const insertQuery = `INSERT INTO ${Table_Game_Info} (roomId, socket1, socket2, dType, scale, createTime) VALUES (?, ?, ?, ?)`;
+    const createTime = new Date().toISOString();
+    db.run(insertQuery, [roomId, socket1, socket2, dType, scale, createTime], (err) => {
+        if (err) {
+            console.error('Error inserting data:', err);
+        }
+    });
+}
+
+// 插入ip表
+function insertIps(clientIp, currentTime) {
+    if (clientIp === '::1') {
+        return;
+    }
+    db.run("INSERT INTO client_ips (ipAddress, connectionTime) VALUES (?, ?)", [clientIp, currentTime], (err) => {
+        if (err) {
+            console.error('Error inserting IP address into database:', err);
+        }
+    });
+}
+
+// 查询表
+function printTable(tableName) {
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
+        if (err) {
+            console.error('Error checking for table existence:', err);
+        }
+    });
+    db.all(`SELECT * FROM ${tableName}`, (err, rows) => {
+        if (err) {
+            console.error('Error retrieving data from database:', err);
+        } else {
+            rows.forEach((row) => {
+                console.log(row);
+            });
+        }
+    });
+}
+
+// 删除表
+function dropTable(tableName) {
+    db.run(`DROP TABLE IF EXISTS ${tableName}`, (err) => {
+        if (err) {
+            console.error('Error dropping table:', err);
+        }
+    });
+}
 
 // Server
 const express = require('express');
@@ -103,42 +221,7 @@ function getCurrentHeadCount() {
     return io.sockets.sockets.size;
 }
 
-function getHistoryPeekUsers() {
-    return new Promise((resolve, reject) => {
-        let peek, timestamp;
-        db.serialize(() => {
-            db.get("SELECT MAX(history_peek_users) AS historyPeekUsers,MAX(timestamp) AS timestamp FROM system", (err, row) => {
-                if (err) {
-                    reject(err);
-                }
-                if (row) {
-                    peek = row.historyPeekUsers;
-                    timestamp = row.timestamp;
-                    resolve({ peek, timestamp });
-                } else {
-                    console.log('没有找到历史最高在线人数记录');
-                    resolve({ historyPeekUsers: 0, timestamp: null });
-                }
-            });
-        });
-    });
-}
-
-function updateHistoryPeekUsers(count) {
-    const timestamp = new Date().toISOString();
-    db.serialize(() => {
-        db.run("INSERT INTO system (history_peek_users, timestamp) VALUES (?, ?)", [count, timestamp], function (err) {
-            if (err) {
-                return console.error(err.message);
-            }
-            console.log(`A row has been inserted with rowid ${this.lastID}`);
-        });
-    });
-}
-
 const crypto = require('crypto');
-const { Socket } = require('dgram');
-const { emit } = require('process');
 
 function generateRoomId(socketId1, socketId2) {
     // Combine the two socket IDs into a single string
@@ -182,26 +265,33 @@ function negotiationPieceType() {
 
 function restartGame(socket) {
     const anotherSocket = getAnotherSocketInRoom(socket);
+    // 协商棋子颜色
     const pieces = negotiationPieceType();
     const user1PieceType = pieces[0];
     const user2PieceType = pieces[1];
     const roomId = users[socket.id].roomId;
     socket.emit('setPieceType', user1PieceType);
     anotherSocket.emit('setPieceType', user2PieceType);
-    const nickName = users[socket.id].nickName;
-    const otherUserNickName = users[anotherSocket.id].nickName;
-    io.to(roomId).emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
-        + '，' + otherUserNickName + ' 执 ' + user1PieceType);
     // 生成道具中
     const seeds = generateSeeds();
     io.to(roomId).emit('setItemSeed', seeds);
-
     // 协商房间设备类型
     const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
     io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+    // 打印对局信息
+    const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
+        + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
+    io.to(roomId).emit('message', startMsg);
+    console.log(startMsg);
 }
 
 io.on('connection', async (socket) => {
+    // 更新ip表
+    const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    const currentTime = new Date().toISOString();
+    insertIps(clientIp, currentTime);
+
+    // 欢迎语
     console.log(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
     connectedSockets[socket.id] = socket;
@@ -253,11 +343,6 @@ io.on('connection', async (socket) => {
             const anotherSocket = otherSockets[0];
             socket.emit('setPieceType', user2PieceType);
             anotherSocket.emit('setPieceType', user1PieceType);
-            let otherUserNickName = users[anotherSocket.id].nickName;
-            socket.emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
-                + '，' + otherUserNickName + ' 执 ' + user1PieceType);
-            socket.to(roomId).emit('message', ' 游戏开始：' + nickName + ' 执 ' + user2PieceType
-                + '，' + otherUserNickName + ' 执 ' + user1PieceType);
 
             // 生成道具中
             const seeds = generateSeeds();
@@ -269,6 +354,13 @@ io.on('connection', async (socket) => {
             io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
 
             io.to(roomId).emit('joined');
+
+            // 打印对局信息
+            const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' +
+                users[socket.id].nickName + '] 执 ' + user2PieceType
+                + '，[' + users[anotherSocket.id].nickName + '] 执 ' + user1PieceType;
+            io.to(roomId).emit('message', startMsg);
+            console.log(startMsg);
         }
     });
 
@@ -296,8 +388,6 @@ io.on('connection', async (socket) => {
             const pieces = negotiationPieceType();
             socket.emit('setPieceType', pieces[0]);
             anotherSocket.emit('setPieceType', pieces[1]);
-            io.to(roomId).emit('message', ' 游戏开始：' + users[socket.id].nickName + ' 执 ' + pieces[0]
-                + '，' + users[anotherSocket.id].nickName + ' 执 ' + pieces[1]);
             const seeds = generateSeeds();
             io.to(roomId).emit('setItemSeed', seeds);
             const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
@@ -305,6 +395,13 @@ io.on('connection', async (socket) => {
             // 房间号
             io.to(roomId).emit('matchedRoomId', roomId);
             io.to(roomId).emit('broadcast', '匹配成功');
+            // 打印对局信息
+            const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
+                + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
+            io.to(roomId).emit('message', startMsg);
+            console.log(startMsg);
+            // 持久化
+            insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
         }
     });
 
@@ -315,7 +412,12 @@ io.on('connection', async (socket) => {
 
     // 监听离开房间事件
     socket.on('leaveRoom', () => {
-        const roomId = users[socket.id].roomId;
+        const user = users[socket.id];
+        if (!user) {
+            socket.emit("message", '用户已离开房间');
+            return;
+        }
+        const roomId = user.roomId;
         const nickName = users[socket.id].nickName;
         socket.leave(roomId);
         users[socket.id].roomId = undefined;
@@ -323,18 +425,20 @@ io.on('connection', async (socket) => {
     });
 
     // 监听点击棋盘位置，转发给其他用户
-    socket.on('step', ({ i, j }) => {
+    socket.on('step', ({ i, j, currItem, nextItem }) => {
         const anotherSocket = getAnotherSocketInRoom(socket);
         if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
             socket.emit("message", '对方网络未连接');
             return;
         }
         anotherSocket.emit('step', { i, j });
-        console.log(users[socket.id].nickName + ': ' + i + ',' + j)
+        console.log(users[socket.id].nickName + ': ' + i + ',' + j + ',' + currItem + ',' + nextItem);
     });
 
     socket.on('skipRound', () => {
-        if (!users[socket.id]) {
+        const user = users[socket.id];
+        if (!user) {
+            socket.emit("message", '对方网络未连接');
             return;
         }
         const roomId = users[socket.id].roomId;
@@ -386,14 +490,6 @@ io.on('connection', async (socket) => {
         const roomId = users[socket.id].roomId;
         const socketId = socket.id;
         io.to(roomId).emit('undoRound', { resp, socketId });
-    });
-
-    // 监听还原事件
-    socket.on('redoRoundRequest', () => {
-        const roomId = users[socket.id].roomId;
-        if (roomId) {
-            io.to(roomId).emit('redoRound');
-        }
     });
 
     // 监听客户端断开连接事件
