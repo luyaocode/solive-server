@@ -25,3 +25,4 @@ yarn-error.log*
 # other
 .vscode/
 !.gitignore
+chaos-gomoku.db
