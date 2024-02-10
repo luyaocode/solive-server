@@ -334,6 +334,9 @@ io.on('connection', async (socket) => {
     });
 
     socket.on('skipRound', () => {
+        if (!users[socket.id]) {
+            return;
+        }
         const roomId = users[socket.id].roomId;
         if (roomId) {
             io.to(roomId).emit('skipRound');
