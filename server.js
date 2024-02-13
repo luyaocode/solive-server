@@ -25,7 +25,7 @@ const db = new sqlite3.Database('chaos-gomoku.db');
 // 测试用
 // dropTable(Table_Game_Info);
 // dropTable(Table_Step_Info);
-printTable(Table_Client_Ips);
+// printTable(Table_Client_Ips);
 db.serialize(() => {
     const create_table_system = `CREATE TABLE IF NOT EXISTS ${Table_System} (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`;
     const create_table_client_ips = `CREATE TABLE IF NOT EXISTS ${Table_Client_Ips} (
@@ -189,6 +189,26 @@ function dropTable(tableName) {
             console.error('Error dropping table:', err);
         }
     });
+}
+
+// Jwt
+const jwt = require('jsonwebtoken');
+const secretKey = 'chaos-gomoku'; // 用于签名Token的密钥，务必保密
+const payload = { userId: 'admin', username: 'admin' };
+
+// 生成Token的函数
+function generateToken(payload, secretKey, expiresIn = '1h') {
+    return jwt.sign(payload, secretKey, { expiresIn });
+}
+
+// 验证Token的函数
+function verifyToken(token, secretKey) {
+    try {
+        const decoded = jwt.verify(token, secretKey);
+        return { isValid: true, payload: decoded };
+    } catch (error) {
+        return { isValid: false, error: error.message };
+    }
 }
 
 // Server
@@ -557,10 +577,21 @@ io.on('connection', async (socket) => {
     socket.on('login', ({ account, passwd }) => {
         if (account === 'admin' && passwd === 'admin') {
             socket.emit('login_resp', true);
+            // 生成Token
+            const token = generateToken(payload, secretKey);
+            socket.emit('token', token);
         }
         else {
             socket.emit('login_resp', false);
         }
+    });
+
+    socket.on('verifyToken', (token) => {
+        const result = verifyToken(token, secretKey);
+        if (!result.isValid) {
+            console.error('Token is invalid. Error:', result.error);
+        }
+        socket.emit('token_valid', result.isValid);
     });
 
     // 发送数据库数据
