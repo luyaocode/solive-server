@@ -22,9 +22,17 @@ const GameMode = {
 // SQLite
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('chaos-gomoku.db');
+// 测试用
+// dropTable(Table_Game_Info);
+// dropTable(Table_Step_Info);
+printTable(Table_Client_Ips);
 db.serialize(() => {
     const create_table_system = `CREATE TABLE IF NOT EXISTS ${Table_System} (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`;
-    const create_table_client_ips = `CREATE TABLE IF NOT EXISTS ${Table_Client_Ips} (id INTEGER PRIMARY KEY AUTOINCREMENT, ipAddress TEXT, connectionTime DATETIME)`;
+    const create_table_client_ips = `CREATE TABLE IF NOT EXISTS ${Table_Client_Ips} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ipAddress TEXT,
+        connectionTime DATETIME
+    )`;
     const create_table_game_info = `CREATE TABLE IF NOT EXISTS ${Table_Game_Info} (
         gameId INTEGER PRIMARY KEY AUTOINCREMENT,
         roomId TEXT,
@@ -37,6 +45,7 @@ db.serialize(() => {
     const create_table_step_info = `CREATE TABLE IF NOT EXISTS ${Table_Step_Info} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         gameId INTEGER,
+        socketId TEXT,
         x INTEGER,
         y INTEGER,
         currItem TEXT,
@@ -82,11 +91,50 @@ function updateHistoryPeekUsers(count) {
     });
 }
 
-// 插入
-function insertStepInfo(gameId, x, y, currItem, nextItem) {
-    const insertQuery = `INSERT INTO ${Table_Step_Info} (gameId, x, y, currItem, nextItem, currentTime) VALUES (?, ?, ?, ?, ?, ?)`;
+// 发送表数据
+function sendTableData(tableName, socket) {
+    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
+        if (err) {
+            console.error('Error checking for table existence:', err);
+        }
+    });
+    db.all(`SELECT * FROM ${tableName}`, (err, tableData) => {
+        if (err) {
+            console.error('Error querying table: ', err);
+            return;
+        }
+        socket.emit('tableData', { tableName, tableData });
+    });
+}
+
+// 查询gameId
+function searchGameId(roomId) {
+    return new Promise((resolve, reject) => {
+        db.serialize(() => {
+            const query = `
+            SELECT gameId
+            FROM ${Table_Game_Info}
+            WHERE roomId = ?
+            ORDER BY createTime DESC
+            LIMIT 1
+            `;
+            db.get(query, [roomId], (err, row) => {
+                if (err) {
+                    reject(err);
+                }
+                if (row) {
+                    resolve(row.gameId);
+                }
+            });
+        });
+    });
+}
+
+// 插入步骤
+function insertStepInfo(gameId, socketId, x, y, currItem, nextItem) {
+    const insertQuery = `INSERT INTO ${Table_Step_Info} (gameId, socketId,x, y, currItem, nextItem, currentTime) VALUES (?, ?, ?, ?, ?, ?, ?)`;
     const currentTime = new Date().toISOString();
-    db.run(insertQuery, [gameId, x, y, currItem, nextItem, currentTime], (err) => {
+    db.run(insertQuery, [gameId, socketId, x, y, currItem, nextItem, currentTime], (err) => {
         if (err) {
             console.error('Error inserting data:', err);
         }
@@ -95,7 +143,7 @@ function insertStepInfo(gameId, x, y, currItem, nextItem) {
 
 // 插入game_info表
 function insertGameInfo(roomId, socket1, socket2, dType, scale) {
-    const insertQuery = `INSERT INTO ${Table_Game_Info} (roomId, socket1, socket2, dType, scale, createTime) VALUES (?, ?, ?, ?)`;
+    const insertQuery = `INSERT INTO ${Table_Game_Info} (roomId, socket1, socket2, dType, scale, createTime) VALUES (?, ?, ?, ?, ?, ?)`;
     const createTime = new Date().toISOString();
     db.run(insertQuery, [roomId, socket1, socket2, dType, scale, createTime], (err) => {
         if (err) {
@@ -283,6 +331,8 @@ function restartGame(socket) {
         + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
     io.to(roomId).emit('message', startMsg);
     console.log(startMsg);
+    // 持久化
+    insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
 }
 
 io.on('connection', async (socket) => {
@@ -361,6 +411,9 @@ io.on('connection', async (socket) => {
                 + '，[' + users[anotherSocket.id].nickName + '] 执 ' + user1PieceType;
             io.to(roomId).emit('message', startMsg);
             console.log(startMsg);
+
+            // 持久化
+            insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
         }
     });
 
@@ -433,6 +486,14 @@ io.on('connection', async (socket) => {
         }
         anotherSocket.emit('step', { i, j });
         console.log(users[socket.id].nickName + ': ' + i + ',' + j + ',' + currItem + ',' + nextItem);
+        // 记录对局步骤
+        searchGameId(users[socket.id].roomId)
+            .then((gameId) => {
+                insertStepInfo(gameId, socket.id, i, j, currItem, nextItem);
+            })
+            .catch((error) => {
+                console.error("Error retrieving gameId:", error);
+            });
     });
 
     socket.on('skipRound', () => {
@@ -490,6 +551,21 @@ io.on('connection', async (socket) => {
         const roomId = users[socket.id].roomId;
         const socketId = socket.id;
         io.to(roomId).emit('undoRound', { resp, socketId });
+    });
+
+    // 登录
+    socket.on('login', ({ account, passwd }) => {
+        if (account === 'admin' && passwd === 'admin') {
+            socket.emit('login_resp', true);
+        }
+        else {
+            socket.emit('login_resp', false);
+        }
+    });
+
+    // 发送数据库数据
+    socket.on('fetchTable', (tableName) => {
+        sendTableData(tableName, socket);
     });
 
     // 监听客户端断开连接事件
