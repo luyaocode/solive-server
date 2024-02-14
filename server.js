@@ -81,7 +81,7 @@ function getHistoryPeekUsers() {
 }
 
 function updateHistoryPeekUsers(count) {
-    const timestamp = new Date().toISOString();
+    const timestamp = getBeijingTime();
     db.serialize(() => {
         db.run("INSERT INTO system (history_peek_users, timestamp) VALUES (?, ?)", [count, timestamp], function (err) {
             if (err) {
@@ -133,7 +133,7 @@ function searchGameId(roomId) {
 // 插入步骤
 function insertStepInfo(gameId, socketId, x, y, currItem, nextItem) {
     const insertQuery = `INSERT INTO ${Table_Step_Info} (gameId, socketId,x, y, currItem, nextItem, currentTime) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    const currentTime = new Date().toISOString();
+    const currentTime = getBeijingTime();
     db.run(insertQuery, [gameId, socketId, x, y, currItem, nextItem, currentTime], (err) => {
         if (err) {
             console.error('Error inserting data:', err);
@@ -144,7 +144,7 @@ function insertStepInfo(gameId, socketId, x, y, currItem, nextItem) {
 // 插入game_info表
 function insertGameInfo(roomId, socket1, socket2, dType, scale) {
     const insertQuery = `INSERT INTO ${Table_Game_Info} (roomId, socket1, socket2, dType, scale, createTime) VALUES (?, ?, ?, ?, ?, ?)`;
-    const createTime = new Date().toISOString();
+    const createTime = getBeijingTime();
     db.run(insertQuery, [roomId, socket1, socket2, dType, scale, createTime], (err) => {
         if (err) {
             console.error('Error inserting data:', err);
@@ -154,9 +154,9 @@ function insertGameInfo(roomId, socket1, socket2, dType, scale) {
 
 // 插入ip表
 function insertIps(clientIp, currentTime) {
-    if (clientIp === '::1') {
-        return;
-    }
+    // if (clientIp === '::1') {
+    //     return;
+    // }
     db.run("INSERT INTO client_ips (ipAddress, connectionTime) VALUES (?, ?)", [clientIp, currentTime], (err) => {
         if (err) {
             console.error('Error inserting IP address into database:', err);
@@ -355,10 +355,22 @@ function restartGame(socket) {
     insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
 }
 
+function getBeijingTime() {
+    // 创建一个新的Date对象
+    const currentDate = new Date();
+    // 将Date对象转换为北京时间的ISO 8601格式字符串
+    const beijingTimeISO = currentDate.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        dateStyle: 'full', // 日期部分使用完整格式
+        timeStyle: 'full' // 时间部分使用简短格式
+    }).replace(/\//g, '-').replace(' 中国标准时间 ', ' ');
+    return beijingTimeISO;
+}
+
 io.on('connection', async (socket) => {
     // 更新ip表
     const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-    const currentTime = new Date().toISOString();
+    const currentTime = getBeijingTime();
     insertIps(clientIp, currentTime);
 
     // 欢迎语
