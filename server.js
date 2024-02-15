@@ -450,13 +450,14 @@ io.on('connection', async (socket) => {
     });
 
     // 监听匹配房间请求
-    socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight }) => {
+    socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight, avatarIndex }) => {
         users[socket.id] = {
             nickName: socket.id,
             roomId: undefined,
             deviceType: deviceType,
             boardWidth: boardWidth,
             boardHeight: boardHeight,
+            avatarIndex: avatarIndex,
         };
 
         if (matchingArray.length === 0) {
@@ -480,6 +481,11 @@ io.on('connection', async (socket) => {
             // 房间号
             io.to(roomId).emit('matchedRoomId', roomId);
             io.to(roomId).emit('broadcast', '匹配成功');
+
+            // 交换头像
+            socket.emit('set_avatar_pb', users[anotherSocket.id].avatarIndex);
+            anotherSocket.emit('set_avatar_pb', users[socket.id].avatarIndex);
+
             // 打印对局信息
             const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
                 + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
