@@ -617,6 +617,16 @@ io.on('connection', async (socket) => {
         sendTableData(tableName, socket);
     });
 
+    // 监听聊天
+    socket.on('chatMessage', (newMessage) => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
+            return;
+        }
+        const { text } = newMessage;
+        anotherSocket.emit('chat_message', text);
+    })
+
     // 监听客户端断开连接事件
     socket.on('disconnect', () => {
         if (users[socket.id] && users[socket.id].roomId) {
