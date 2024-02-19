@@ -216,10 +216,20 @@ const express = require('express');
 const https = require('https');
 const app = express();
 const fs = require('fs');
+let ssl_crt, ssl_key;
+if (process.env.NODE_ENV === 'prod') {
+    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.key';
+}
+else if (process.env.NODE_ENV === 'dev') {
+    ssl_crt = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/www.chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/www.chaosgomoku.fun.key';
+}
 const options = {
-    key: fs.readFileSync('/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.key'),
-    cert: fs.readFileSync('/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.pem')
-};
+    key: fs.readFileSync(ssl_key),
+    cert: fs.readFileSync(ssl_crt)
+}
+
 const server = https.createServer(options, app);
 const socket = require('socket.io');
 const io = socket(server, {
