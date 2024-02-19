@@ -215,6 +215,10 @@ function verifyToken(token, secretKey) {
 const express = require('express');
 const https = require('https');
 const app = express();
+const options = {
+    key: fs.readFileSync('/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.key'),
+    cert: fs.readFileSync('/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.pem')
+};
 const server = https.createServer(app);
 const socket = require('socket.io');
 const io = socket(server, {
