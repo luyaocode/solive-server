@@ -218,12 +218,12 @@ const app = express();
 const fs = require('fs');
 let ssl_crt, ssl_key;
 if (process.env.NODE_ENV === 'prod') {
-    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.pem';
-    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/www.chaosgomoku.fun.key';
+    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/chaosgomoku.fun.key';
 }
 else if (process.env.NODE_ENV === 'dev') {
-    ssl_crt = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/www.chaosgomoku.fun.pem';
-    ssl_key = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/www.chaosgomoku.fun.key';
+    ssl_crt = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/chaos-gomoku-server/myserver/ssl/chaosgomoku.fun.key';
 }
 const options = {
     key: fs.readFileSync(ssl_key),
