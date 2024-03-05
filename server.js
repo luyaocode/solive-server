@@ -383,6 +383,20 @@ function getBeijingTime() {
     return beijingTimeISO;
 }
 
+function handleVideoChat(socket) {
+    socket.on("callUser", (data) => {
+        io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
+    })
+
+    socket.on("answerCall", (data) => {
+        io.to(data.to).emit("callAccepted", data.signal);
+    })
+
+    socket.on("endConnect", (data) => {
+        io.to(data.to).emit("connectEnded");
+    });
+}
+
 io.on('connection', async (socket) => {
     // 更新ip表
     const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
@@ -413,6 +427,7 @@ io.on('connection', async (socket) => {
             console.error('查询失败:', err);
         });
 
+    handleVideoChat(socket);
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight }) => {
         await socket.join(roomId);
