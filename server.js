@@ -386,14 +386,19 @@ function getBeijingTime() {
 function handleVideoChat(socket) {
     socket.on("callUser", (data) => {
         io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
-    })
+    });
 
-    socket.on("answerCall", (data) => {
+    socket.on("acceptCall", (data) => {
         io.to(data.to).emit("callAccepted", data.signal);
-    })
+    });
+
+    socket.on("rejectCall", (data) => {
+        io.to(data.to).emit("callRejected");
+    });
 
     socket.on("endConnect", (data) => {
-        io.to(data.to).emit("connectEnded");
+        io.to(data.me).emit("connectEnded");
+        io.to(data.another).emit("connectEnded");
     });
 }
 
