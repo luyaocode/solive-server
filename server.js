@@ -383,6 +383,7 @@ function getBeijingTime() {
     return beijingTimeISO;
 }
 
+// 视频通话
 function handleVideoChat(socket) {
     socket.on("callUser", (data) => {
         io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
@@ -399,6 +400,10 @@ function handleVideoChat(socket) {
     socket.on("endConnect", (data) => {
         io.to(data.me).emit("connectEnded");
         io.to(data.another).emit("connectEnded");
+    });
+
+    socket.on("callCanceled", (data) => {
+        io.to(data.to).emit("callCanceled");
     });
 }
 
