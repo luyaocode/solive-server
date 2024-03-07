@@ -413,6 +413,10 @@ function handleVideoChat(socket) {
     socket.on("isBusy", (data) => {
         io.to(data.to).emit("isBusy");
     });
+
+    socket.on("nomedia", (data) => {
+        io.to(data.to).emit("nomedia");
+    });
 }
 
 io.on('connection', async (socket) => {
