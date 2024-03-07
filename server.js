@@ -405,6 +405,14 @@ function handleVideoChat(socket) {
     socket.on("callCanceled", (data) => {
         io.to(data.to).emit("callCanceled");
     });
+
+    socket.on("changeTrack", (data) => {
+        io.to(data.to).emit("changeTrackAgreed", data.signal);
+    });
+
+    socket.on("isBusy", (data) => {
+        io.to(data.to).emit("isBusy");
+    });
 }
 
 io.on('connection', async (socket) => {
