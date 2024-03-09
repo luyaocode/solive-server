@@ -452,6 +452,11 @@ io.on('connection', async (socket) => {
     handleVideoChat(socket);
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight }) => {
+        const roomSize = getRoomUserCount(roomId);
+        if (roomSize === 2) {
+            socket.emit('roomIsFull');
+            return;
+        }
         await socket.join(roomId);
         users[socket.id] = {
             nickName: nickName,
@@ -460,12 +465,11 @@ io.on('connection', async (socket) => {
             boardWidth: boardWidth,
             boardHeight: boardHeight,
         };
-        const roomSize = getRoomUserCount(roomId);
-        if (roomSize === 1) {
+        if (roomSize === 0) {
             socket.emit('message', '创建房间 ' + roomId);
             socket.emit('message', nickName + ' 进入房间');
             socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
-        } else if (roomSize === 2) {
+        } else if (roomSize === 1) {
             socket.emit('message', nickName + ' 进入房间 ');
             socket.to(roomId).emit('broadcast', nickName + ' 进入房间 ');
             let user1PieceType = Math.random() > 0.5 ? Piece_Type_Black : Piece_Type_White;
