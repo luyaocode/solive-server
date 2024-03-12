@@ -244,6 +244,19 @@ app.get('/', (req, res) => {
     res.send('Hello, World!'); // 返回一个简单的响应
 });
 
+// 在后端路由中处理获取地理位置信息的请求
+app.get('/api/location', (req, res) => {
+    // 这里可以调用你的地理位置服务或者使用假数据
+    const locationData = {
+        city: 'New York',
+        region: 'NY',
+        country_name: 'United States',
+        ip: '192.168.1.1' // 你的IP地址
+    };
+    res.json(locationData);
+});
+
+
 
 let connectedSockets = {}
 let users = {}
@@ -698,6 +711,30 @@ io.on('connection', async (socket) => {
         let currentHeadCount = getCurrentHeadCount();
         io.emit('currentHeadCount', currentHeadCount);
 
+    });
+
+    socket.on('inviteGame', () => {
+        const otherSocketIds = Object.keys(connectedSockets).filter(id => {
+            return id !== socket.id && connectedSockets[id].rooms.size === 1 &&
+                connectedSockets[id].rooms.has(id);
+        });
+        if (otherSocketIds.length > 0) {
+            const randomIndex = Math.floor(Math.random() * otherSocketIds.length);
+            const randomSocketId = otherSocketIds[randomIndex];
+            io.to(randomSocketId).emit('inviteGame');
+        }
+    });
+
+    socket.on('inviteGame', () => {
+        const otherSocketIds = Object.keys(connectedSockets).filter(id => {
+            return id !== socket.id && connectedSockets[id].rooms.size === 1 &&
+                connectedSockets[id].rooms.has(id);
+        });
+        if (otherSocketIds.length > 0) {
+            const randomIndex = Math.floor(Math.random() * otherSocketIds.length);
+            const randomSocketId = otherSocketIds[randomIndex];
+            io.to(randomSocketId).emit('inviteGame');
+        }
     });
 });
 
