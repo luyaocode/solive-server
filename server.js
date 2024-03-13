@@ -19,6 +19,12 @@ const GameMode = {
     MODE_ROOM: 3,
 }
 
+const PublicMsg_Max_Length = 5000;
+const Notice_Max_Length = 1000;
+
+// axios
+const axios = require('axios');
+
 // SQLite
 const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('chaos-gomoku.db');
@@ -244,23 +250,11 @@ app.get('/', (req, res) => {
     res.send('Hello, World!'); // 返回一个简单的响应
 });
 
-// 在后端路由中处理获取地理位置信息的请求
-app.get('/api/location', (req, res) => {
-    // 这里可以调用你的地理位置服务或者使用假数据
-    const locationData = {
-        city: 'New York',
-        region: 'NY',
-        country_name: 'United States',
-        ip: '192.168.1.1' // 你的IP地址
-    };
-    res.json(locationData);
-});
-
-
-
 let connectedSockets = {}
 let users = {}
 let matchingArray = []
+let publicMsgs = [] // 公告板
+let teamMsgs = [] // 组队公告
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room) {
@@ -432,6 +426,22 @@ function handleVideoChat(socket) {
     });
 }
 
+function publishNotice(socket, noticeType, loc, roomId, nickName) {
+    const newNotice = {
+        id: socket.id,
+        type: noticeType,
+        timestamp: Date.now(),
+        locationData: loc,
+        roomId: roomId,
+        nickName: nickName
+    };
+    teamMsgs.push(newNotice);
+    if (teamMsgs.length > Notice_Max_Length) {
+        teamMsgs = teamMsgs.slice(teamMsgs / 2);
+    }
+    io.emit('notice', newNotice);
+}
+
 io.on('connection', async (socket) => {
     // 更新ip表
     const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
@@ -461,10 +471,13 @@ io.on('connection', async (socket) => {
         .catch(err => {
             console.error('查询失败:', err);
         });
+    // 发送公告板消息
+    socket.emit('publicMsgs', publicMsgs);
+    socket.emit('notices', teamMsgs);
 
     handleVideoChat(socket);
     // 监听加入房间请求
-    socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight }) => {
+    socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData }) => {
         const roomSize = getRoomUserCount(roomId);
         if (roomSize === 2) {
             socket.emit('roomIsFull');
@@ -482,6 +495,8 @@ io.on('connection', async (socket) => {
             socket.emit('message', '创建房间 ' + roomId);
             socket.emit('message', nickName + ' 进入房间');
             socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
+            // 发布公告
+            publishNotice(socket, 'createRoom', locationData, roomId, nickName);
         } else if (roomSize === 1) {
             socket.emit('message', nickName + ' 进入房间 ');
             socket.to(roomId).emit('broadcast', nickName + ' 进入房间 ');
@@ -520,7 +535,7 @@ io.on('connection', async (socket) => {
     });
 
     // 监听匹配房间请求
-    socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight, avatarIndex }) => {
+    socket.on('matchRoom', async ({ deviceType, boardWidth, boardHeight, avatarIndex, locationData }) => {
         users[socket.id] = {
             nickName: socket.id,
             roomId: undefined,
@@ -532,6 +547,8 @@ io.on('connection', async (socket) => {
 
         if (matchingArray.length === 0) {
             matchingArray.push(socket.id);
+            // 发布公告
+            publishNotice(socket, 'startMatch', locationData);
         }
         else {
             const anotherSocketId = matchingArray.shift();
@@ -725,15 +742,12 @@ io.on('connection', async (socket) => {
         }
     });
 
-    socket.on('inviteGame', () => {
-        const otherSocketIds = Object.keys(connectedSockets).filter(id => {
-            return id !== socket.id && connectedSockets[id].rooms.size === 1 &&
-                connectedSockets[id].rooms.has(id);
-        });
-        if (otherSocketIds.length > 0) {
-            const randomIndex = Math.floor(Math.random() * otherSocketIds.length);
-            const randomSocketId = otherSocketIds[randomIndex];
-            io.to(randomSocketId).emit('inviteGame');
+    // 监听用户发布广播消息
+    socket.on('publishPublicMsg', (msg) => {
+        publicMsgs.push(msg);
+        socket.broadcast.emit('publicMsg', msg); // 发送给除发送方以外的所有 socket
+        if (publicMsgs.length > PublicMsg_Max_Length) {
+            publicMsgs = publicMsgs.slice(publicMsgs.length / 2); // 截取数组的前一半元素
         }
     });
 });
