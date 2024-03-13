@@ -21,6 +21,15 @@ const GameMode = {
 
 const PublicMsg_Max_Length = 5000;
 const Notice_Max_Length = 1000;
+const TitleNotice = {
+    message: '富强、民主、文明、和谐。自由、平等、公正、法治。爱国、敬业、诚信、友善。',
+    id: '小棋',
+    timestamp: Date.now(),
+    locationData: {
+        country: '中国',
+        city: '湖北'
+    }
+}
 
 // axios
 const axios = require('axios');
@@ -253,7 +262,7 @@ app.get('/', (req, res) => {
 let connectedSockets = {}
 let users = {}
 let matchingArray = []
-let publicMsgs = [] // 公告板
+let publicMsgs = [TitleNotice] // 公告板
 let teamMsgs = [] // 组队公告
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
