@@ -486,7 +486,7 @@ io.on('connection', async (socket) => {
 
     handleVideoChat(socket);
     // 监听加入房间请求
-    socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData }) => {
+    socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData, shareRoom }) => {
         const roomSize = getRoomUserCount(roomId);
         if (roomSize === 2) {
             socket.emit('roomIsFull');
@@ -505,7 +505,9 @@ io.on('connection', async (socket) => {
             socket.emit('message', nickName + ' 进入房间');
             socket.emit('message', '由于该房间人数不足，暂时无法开局，请您耐心等待');
             // 发布公告
-            publishNotice(socket, 'createRoom', locationData, roomId, nickName);
+            if (shareRoom) {
+                publishNotice(socket, 'createRoom', locationData, roomId, nickName);
+            }
         } else if (roomSize === 1) {
             socket.emit('message', nickName + ' 进入房间 ');
             socket.to(roomId).emit('broadcast', nickName + ' 进入房间 ');
