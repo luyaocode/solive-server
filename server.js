@@ -40,12 +40,14 @@ const db = new sqlite3.Database('chaos-gomoku.db');
 // 测试用
 // dropTable(Table_Game_Info);
 // dropTable(Table_Step_Info);
+// dropTable(Table_Client_Ips);
 // printTable(Table_Client_Ips);
 db.serialize(() => {
     const create_table_system = `CREATE TABLE IF NOT EXISTS ${Table_System} (id INTEGER PRIMARY KEY AUTOINCREMENT,history_peek_users INT NOT NULL,timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`;
     const create_table_client_ips = `CREATE TABLE IF NOT EXISTS ${Table_Client_Ips} (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ipAddress TEXT,
+        location TEXT,
         connectionTime DATETIME
     )`;
     const create_table_game_info = `CREATE TABLE IF NOT EXISTS ${Table_Game_Info} (
@@ -168,11 +170,11 @@ function insertGameInfo(roomId, socket1, socket2, dType, scale) {
 }
 
 // 插入ip表
-function insertIps(clientIp, currentTime) {
+function insertIps(clientIp, currentTime, location) {
     // if (clientIp === '::1') {
     //     return;
     // }
-    db.run("INSERT INTO client_ips (ipAddress, connectionTime) VALUES (?, ?)", [clientIp, currentTime], (err) => {
+    db.run("INSERT INTO client_ips (ipAddress, connectionTime,location) VALUES (?, ?,?)", [clientIp, currentTime, location], (err) => {
         if (err) {
             console.error('Error inserting IP address into database:', err);
         }
@@ -451,11 +453,38 @@ function publishNotice(socket, noticeType, loc, roomId, nickName) {
     io.emit('notice', newNotice);
 }
 
+async function getLocationByIP(ip, api = 'https://ipinfo.io',) {
+    try {
+        const response = await axios.get(`${api}/${ip}/json`);
+        const { country, region, city } = response.data;
+        return { country, region, city };
+    } catch (error) {
+        console.error('Error retrieving location information:', error.message);
+        return {
+            country: undefined,
+            region: undefined,
+            city: undefined
+        };
+    }
+}
+
+function extractIPv4FromIPv6(ipv6) {
+    // 使用正则表达式匹配IPv4地址部分
+    const match = ipv6.match(/::ffff:(\d+\.\d+\.\d+\.\d+)/);
+    if (match && match[1]) {
+        return match[1]; // 返回提取到的IPv4地址
+    }
+    return ipv6; // 如果未找到IPv4地址，则返回null
+}
+
 io.on('connection', async (socket) => {
     // 更新ip表
     const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    const ipv4 = extractIPv4FromIPv6(clientIp);
     const currentTime = getBeijingTime();
-    insertIps(clientIp, currentTime);
+    const { country, region, city } = await getLocationByIP(ipv4);
+    const location = country + ' ' + region + ' ' + city;
+    insertIps(ipv4, currentTime, location);
 
     // 欢迎语
     console.log(`Client connected: ${socket.id}`);
