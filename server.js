@@ -419,7 +419,7 @@ function handleVideoChat(socket) {
     });
 
     socket.on("acceptCall", (data) => {
-        io.to(data.to).emit("callAccepted", data.signal);
+        io.to(data.to).emit("callAccepted", { signal: data.signal, name: data.name });
     });
 
     socket.on("rejectCall", (data) => {
@@ -455,8 +455,12 @@ function handleVideoChat(socket) {
         io.to(data.to).emit("shareScreenAccepted", data.signal);
     });
 
-    socket.on("stopShareScreen", (data) => {
+    socket.on("shareScreenStopped", (data) => {
         io.to(data.to).emit("shareScreenStopped");
+    });
+
+    socket.on("stopShareScreen", (data) => {
+        io.to(data.to).emit("stopShareScreen");
     });
 }
 
