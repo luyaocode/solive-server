@@ -446,6 +446,18 @@ function handleVideoChat(socket) {
     socket.on("nomedia", (data) => {
         io.to(data.to).emit("nomedia");
     });
+
+    socket.on("shareScreen", (data) => {
+        io.to(data.idToShare).emit("shareScreen", { signal: data.signalData, from: data.from });
+    });
+
+    socket.on("acceptShareScreen", (data) => {
+        io.to(data.to).emit("shareScreenAccepted", data.signal);
+    });
+
+    socket.on("stopShareScreen", (data) => {
+        io.to(data.to).emit("shareScreenStopped");
+    });
 }
 
 function publishNotice(socket, noticeType, loc, roomId, nickName) {
