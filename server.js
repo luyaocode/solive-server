@@ -1,5 +1,13 @@
 const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info } = require('./ConstDefine.js');
-
+// const { formatDate } = require("./plugins.js");
+const ffi = require("ffi-napi");
+// 定义要调用的函数及其参数类型
+const lib = ffi.Library('lib/libChaosGomokuUtils', {
+    'getformatCurrBjTime': ['string', []]
+});
+function getformatNowTime() {
+    return lib.getformatCurrBjTime();
+}
 // Const Define
 const Piece_Type_Black = '●';
 const Piece_Type_White = '○';
@@ -816,6 +824,11 @@ io.on('connection', async (socket) => {
         if (publicMsgs.length > PublicMsg_Max_Length) {
             publicMsgs = publicMsgs.slice(publicMsgs.length / 2); // 截取数组的前一半元素
         }
+    });
+
+    socket.on("getFormatDate", () => {
+        const strDate = getformatNowTime();
+        socket.emit('formatDateGot', strDate);
     });
 });
 
