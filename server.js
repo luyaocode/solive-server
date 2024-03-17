@@ -398,7 +398,8 @@ function restartGame(socket) {
     io.to(roomId).emit('setItemSeed', seeds);
     // 协商房间设备类型
     const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
-    io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+    const data = { sid: socket.id, asid: anotherSocket.id };
+    io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight, data });
     // 打印对局信息
     const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
         + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
@@ -423,7 +424,10 @@ function getBeijingTime() {
 // 视频通话
 function handleVideoChat(socket) {
     socket.on("callUser", (data) => {
-        io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
+        io.to(data.userToCall).emit("callUser", {
+            signal: data.signalData, from: data.from, name: data.name,
+            isInGame: data.isInGame
+        });
     });
 
     socket.on("acceptCall", (data) => {
@@ -593,7 +597,8 @@ io.on('connection', async (socket) => {
 
             // 协商房间设备类型
             const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
-            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+            const data = { sid: socket.id, asid: anotherSocket.id };
+            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight, data });
 
             io.to(roomId).emit('joined');
 
@@ -639,7 +644,8 @@ io.on('connection', async (socket) => {
             const seeds = generateSeeds();
             io.to(roomId).emit('setItemSeed', seeds);
             const { roomDType, bWidth, bHeight } = negotiationDeviceType(socket, anotherSocket);
-            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight });
+            const data = { sid: socket.id, asid: anotherSocketId };
+            io.to(roomId).emit('setRoomDeviceType', { roomDType, bWidth, bHeight, data });
             // 房间号
             io.to(roomId).emit('matchedRoomId', roomId);
             io.to(roomId).emit('broadcast', '匹配成功');
@@ -706,6 +712,15 @@ io.on('connection', async (socket) => {
         if (roomId) {
             io.to(roomId).emit('skipRound');
         }
+    });
+
+    socket.on('completelyReady', () => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
+            socket.emit("message", '对方网络未连接');
+            return;
+        }
+        anotherSocket.emit('completelyReady');
     });
 
     // 监听重来一局事件
