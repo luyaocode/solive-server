@@ -474,6 +474,10 @@ function handleVideoChat(socket) {
     socket.on("stopShareScreen", (data) => {
         io.to(data.to).emit("stopShareScreen");
     });
+
+    socket.on("transceiverRequest", (data) => {
+        io.to(data.to).emit("transceiverRequest", data.signal);
+    });
 }
 
 function publishNotice(socket, noticeType, loc, roomId, nickName) {
