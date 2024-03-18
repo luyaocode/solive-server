@@ -459,6 +459,10 @@ function handleVideoChat(socket) {
         io.to(data.to).emit("nomedia");
     });
 
+    socket.on("peerAudioStatus", (data) => {
+        io.to(data.to).emit("peerAudioStatus", data.status);
+    });
+
     socket.on("shareScreen", (data) => {
         io.to(data.idToShare).emit("shareScreen", { signal: data.signalData, from: data.from });
     });
