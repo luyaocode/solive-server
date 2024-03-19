@@ -571,6 +571,7 @@ io.on('connection', async (socket) => {
             deviceType: deviceType,
             boardWidth: boardWidth,
             boardHeight: boardHeight,
+            isReady: false,
         };
         if (roomSize === 0) {
             socket.emit('message', '创建房间 ' + roomId);
@@ -627,6 +628,7 @@ io.on('connection', async (socket) => {
             boardWidth: boardWidth,
             boardHeight: boardHeight,
             avatarIndex: avatarIndex,
+            isReady: false,
         };
 
         if (matchingArray.length === 0) {
@@ -684,6 +686,7 @@ io.on('connection', async (socket) => {
         const nickName = users[socket.id].nickName;
         socket.leave(roomId);
         users[socket.id].roomId = undefined;
+        users[socket.id].isReady = false;
         io.to(roomId).emit('playerLeaveRoom', nickName + '离开房间');
     });
 
@@ -724,7 +727,13 @@ io.on('connection', async (socket) => {
             socket.emit("message", '对方网络未连接');
             return;
         }
-        anotherSocket.emit('completelyReady');
+        const roomId = users[socket.id].roomId;
+        if (users[anotherSocket.id].isReady) {
+            io.to(roomId).emit('completelyReady');
+        }
+        else {
+            users[socket.id].isReady = true;
+        }
     });
 
     // 监听重来一局事件
