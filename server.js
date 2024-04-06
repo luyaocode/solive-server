@@ -46,7 +46,6 @@ const TitleNotice = {
     locationData: {
         country: '中国',
         region: '湖北',
-        city: '广水',
     }
 }
 
