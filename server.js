@@ -284,6 +284,7 @@ let users = {}
 let matchingArray = []
 let publicMsgs = [TitleNotice] // 公告板
 let teamMsgs = [] // 组队公告
+let liveRooms = {} // 直播间
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room) {
@@ -479,6 +480,38 @@ function handleVideoChat(socket) {
     });
 }
 
+const generateLiveRoomId = (socketId) => {
+    const combinedSocketId = `${socketId}`;
+    const hash = crypto.createHash('sha256');
+    hash.update(combinedSocketId);
+    const hashedSocketId = hash.digest('hex');
+    return hashedSocketId.slice(0, 8);
+};
+
+// 直播
+function handleLiveStream(socket) {
+    socket.on("createLiveRoom", () => {
+        const lid = generateLiveRoomId(socket.id);
+        liveRooms[socket.id] = lid;
+        socket.emit("liveStreamRoomId", lid);
+    });
+
+    socket.on("enterLiveRoom", (lid) => {
+        let res = false;
+        for (let sid in liveRooms) {
+            if (liveRooms[sid] === lid) {
+                res = sid;
+                break;
+            }
+        }
+        io.to(res).emit("enterLiveRoomRequest", socket.id);
+    });
+
+    socket.on('disconnect', () => {
+        delete liveRooms[socket.id];
+    });
+}
+
 function publishNotice(socket, noticeType, loc, roomId, nickName) {
     const newNotice = {
         id: socket.id,
@@ -556,6 +589,9 @@ io.on('connection', async (socket) => {
     socket.emit('notices', teamMsgs);
 
     handleVideoChat(socket);
+
+    // 直播
+    handleLiveStream(socket);
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData, shareRoom }) => {
         const roomSize = getRoomUserCount(roomId);
