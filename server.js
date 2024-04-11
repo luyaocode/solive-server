@@ -507,6 +507,17 @@ function handleLiveStream(socket) {
         io.to(res).emit("enterLiveRoomRequest", socket.id);
     });
 
+    socket.on("pushStream", (data) => {
+        io.to(data.userToCall).emit("getLiveStream", {
+            signal: data.signalData, from: data.from, name: data.name,
+            isInGame: data.isInGame
+        });
+    });
+
+    socket.on("acceptStream", (data) => {
+        io.to(data.to).emit("streamAccepted", { signal: data.signal, name: data.name, from: data.from });
+    });
+
     socket.on('disconnect', () => {
         delete liveRooms[socket.id];
     });
