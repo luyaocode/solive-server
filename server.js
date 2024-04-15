@@ -488,7 +488,7 @@ const generateLiveRoomId = (socketId) => {
     return hashedSocketId.slice(0, 8);
 };
 
-// 直播
+//////////////////// 直播///////////////////////
 function handleLiveStream(socket) {
     socket.on("createLiveRoom", () => {
         const lid = generateLiveRoomId(socket.id);
@@ -516,6 +516,14 @@ function handleLiveStream(socket) {
 
     socket.on("acceptStream", (data) => {
         io.to(data.to).emit("streamAccepted", { signal: data.signal, name: data.name, from: data.from });
+    });
+
+    socket.on("pushScreenStream", (data) => {
+        io.to(data.idToShare).emit("getLiveScreenStream", { signal: data.signalData, from: data.from });
+    });
+
+    socket.on("acceptLiveScreenStream", (data) => {
+        io.to(data.to).emit("liveScreenStreamAccepted", { signal: data.signal, from: data.from });
     });
 
     socket.on('disconnect', () => {
