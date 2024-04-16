@@ -504,7 +504,9 @@ function handleLiveStream(socket) {
                 break;
             }
         }
-        io.to(res).emit("enterLiveRoomRequest", socket.id);
+        if (res) {
+            io.to(res).emit("enterLiveRoomRequest", socket.id);
+        }
     });
 
     socket.on("pushStream", (data) => {
@@ -524,6 +526,18 @@ function handleLiveStream(socket) {
 
     socket.on("acceptLiveScreenStream", (data) => {
         io.to(data.to).emit("liveScreenStreamAccepted", { signal: data.signal, from: data.from });
+    });
+
+    socket.on("stopLiveStream", (data) => {
+        io.to(data.to).emit("liveStreamStopped", { from: data.from });
+    });
+
+    socket.on("stopLiveScreenStream", (data) => {
+        io.to(data.to).emit("liveScreenStreamStopped", { from: data.from });
+    });
+
+    socket.on("leaveLiveRoom", (data) => {
+        io.to(data.to).emit("viewerLeaveLiveRoom", { from: data.from });
     });
 
     socket.on('disconnect', () => {
@@ -583,6 +597,7 @@ io.on('connection', async (socket) => {
     // 欢迎语
     console.log(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
+    socket.emit('connected');
     connectedSockets[socket.id] = socket;
 
     // 在线人数统计
