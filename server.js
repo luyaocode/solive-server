@@ -540,6 +540,14 @@ function handleLiveStream(socket) {
         io.to(data.to).emit("viewerLeaveLiveRoom", { from: data.from });
     });
 
+    socket.on("refreshLiveStream", (data) => {
+        io.to(data.to).emit("refreshLiveStream", { from: data.from });
+    });
+
+    socket.on("refreshLiveScreenStream", (data) => {
+        io.to(data.to).emit("refreshLiveScreenStream", { from: data.from });
+    });
+
     socket.on('disconnect', () => {
         delete liveRooms[socket.id];
     });
