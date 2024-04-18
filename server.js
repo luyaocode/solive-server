@@ -285,6 +285,7 @@ let matchingArray = []
 let publicMsgs = [TitleNotice] // 公告板
 let teamMsgs = [] // 组队公告
 let liveRooms = {} // 直播间
+let waitingViewers = {}  // 直播间中等待观看直播的用户
 function getRoomUserCount(roomId) {
     const room = io.sockets.adapter.rooms.get(roomId);
     if (room) {
@@ -491,6 +492,7 @@ const generateLiveRoomId = (socketId) => {
 //////////////////// 直播///////////////////////
 function handleLiveStream(socket) {
     socket.on("createLiveRoom", () => {
+        if (liveRooms[socket.id]) return;
         const lid = generateLiveRoomId(socket.id);
         liveRooms[socket.id] = lid;
         socket.emit("liveStreamRoomId", lid);
@@ -507,6 +509,32 @@ function handleLiveStream(socket) {
         if (res) {
             io.to(res).emit("enterLiveRoomRequest", socket.id);
         }
+        else {
+            socket.emit("liveRoomNotExist", "liveRoomNotExist");
+        }
+    });
+
+    socket.on("anchorOffline", (data) => {
+        const lid = liveRooms[socket.id];
+        if (lid) {
+            if (waitingViewers[lid]) {
+                waitingViewers[lid].add(data);
+            }
+            else {
+                waitingViewers[lid] = new Set();
+                waitingViewers[lid].add(data);
+            }
+            io.to(data).emit("anchorOffline", "anchorOffline");
+        }
+    });
+
+    socket.on("queryWaitingViewers", () => {
+        const lid = liveRooms[socket.id];
+        let res;
+        if (lid && waitingViewers[lid]) {
+            res = Array.from(waitingViewers[lid]);
+        }
+        socket.emit("queryWaitingViewersResult", res);
     });
 
     socket.on("pushStream", (data) => {
@@ -537,6 +565,7 @@ function handleLiveStream(socket) {
     });
 
     socket.on("leaveLiveRoom", (data) => {
+        deleteWaitingViewer(socket.id);
         io.to(data.to).emit("viewerLeaveLiveRoom", { from: data.from });
     });
 
@@ -549,9 +578,22 @@ function handleLiveStream(socket) {
     });
 
     socket.on('disconnect', () => {
+        deleteWaitingViewer(socket.id);
         delete liveRooms[socket.id];
     });
 }
+
+const deleteWaitingViewer = (viewerId) => {
+    for (const key in liveRooms) {
+        if (liveRooms.hasOwnProperty(key)) {
+            const set = waitingViewers[liveRooms[key]];
+            if (set && set.has(viewerId)) {
+                set.delete(viewerId);
+                break;
+            }
+        }
+    }
+};
 
 function publishNotice(socket, noticeType, loc, roomId, nickName) {
     const newNotice = {
