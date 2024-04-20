@@ -496,9 +496,14 @@ const generateLiveRoomId = (socketId) => {
 //////////////////// 直播///////////////////////
 function handleLiveStream(socket) {
     socket.on("createLiveRoom", () => {
-        if (liveRooms[socket.id]) return;
-        const lid = generateLiveRoomId(socket.id);
-        liveRooms[socket.id] = lid;
+        let lid;
+        if (liveRooms[socket.id]) {
+            lid = liveRooms[socket.id];
+        }
+        else {
+            lid = generateLiveRoomId(socket.id);
+            liveRooms[socket.id] = lid;
+        }
         socket.emit("liveStreamRoomId", lid);
     });
 
