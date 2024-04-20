@@ -1034,7 +1034,7 @@ function scheduledCheckFolder(folderPath, maxSize, interval) {
     }, interval);
 }
 
-const temp_folderPath = 'temps';
+const temp_folderPath = 'temp';
 const temp_maxFolderSizeBytes = 1024 * 1024 * 1024; // 1GB
 const temp_interval = 3600000; // 每小时检查一次（单位：毫秒）
 const uploads_folderPath = 'uploads';
