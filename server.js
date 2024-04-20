@@ -606,6 +606,7 @@ const deleteWaitingViewer = (viewerId) => {
 function handleFileUpload(socket) {
     socket.on('liveRoomScreenShoot', imageData => {
         const lid = liveRooms[socket.id];
+        if (!lid) return;
         const fileName = `${lid}.jpg`;
         const fileName_with_timestamp = `${lid}_${Date.now()}.jpg`;
         const filePath = `uploads/${fileName}`;
