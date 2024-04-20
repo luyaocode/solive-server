@@ -27,3 +27,14 @@ yarn-error.log*
 !.gitignore
 chaos-gomoku.db
 /ssl
+
+
+# 忽略文件夹中的所有内容
+temp/
+temp/*
+uploads/
+uploads/*
+
+# 不忽略文件夹本身
+!temp
+!uploads

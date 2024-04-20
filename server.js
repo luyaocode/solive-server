@@ -252,6 +252,7 @@ const http = require('http');
 const https = require('https');
 const app = express();
 const fs = require('fs');
+const path = require('path');
 let ssl_crt, ssl_key;
 let server, options;
 if (process.env.NODE_ENV === 'prod') {
@@ -278,6 +279,9 @@ const io = socket(server, {
 app.get('/', (req, res) => {
     res.send('Hello, World!'); // 返回一个简单的响应
 });
+
+// 静态文件
+app.use('/live-room', express.static('uploads'));
 
 let connectedSockets = {}
 let users = {}
@@ -514,6 +518,10 @@ function handleLiveStream(socket) {
         }
     });
 
+    socket.on("queryLiveRooms", () => {
+        socket.emit("getLiveRooms", liveRooms);
+    });
+
     socket.on("anchorOffline", (data) => {
         const lid = liveRooms[socket.id];
         if (lid) {
@@ -595,6 +603,34 @@ const deleteWaitingViewer = (viewerId) => {
     }
 };
 
+function handleFileUpload(socket) {
+    socket.on('liveRoomScreenShoot', imageData => {
+        const lid = liveRooms[socket.id];
+        const fileName = `${lid}.jpg`;
+        const fileName_with_timestamp = `${lid}_${Date.now()}.jpg`;
+        const filePath = `uploads/${fileName}`;
+        const tempFilePath = path.join('temp', fileName_with_timestamp); // 保存到 temp 文件夹的路径
+
+        const base64Data = imageData.replace(/^data:image\/jpeg;base64,/, '');
+
+        const imageDataBuffer = Buffer.from(base64Data, 'base64');
+        fs.writeFile(filePath, imageDataBuffer, err => {
+            if (err) {
+                console.error('Error saving frame:', err);
+            } else {
+                console.log('Frame saved:', fileName);
+                fs.copyFile(filePath, tempFilePath, err => {
+                    if (err) {
+                        console.error('Error saving frame to temp:', err);
+                    } else {
+                        console.log('Frame saved to temp:', fileName_with_timestamp);
+                    }
+                });
+            }
+        });
+    });
+}
+
 function publishNotice(socket, noticeType, loc, roomId, nickName) {
     const newNotice = {
         id: socket.id,
@@ -672,10 +708,15 @@ io.on('connection', async (socket) => {
     socket.emit('publicMsgs', publicMsgs);
     socket.emit('notices', teamMsgs);
 
+    // 视频通话
     handleVideoChat(socket);
 
     // 直播
     handleLiveStream(socket);
+
+    // 文件传输
+    handleFileUpload(socket);
+
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData, shareRoom }) => {
         const roomSize = getRoomUserCount(roomId);
@@ -981,3 +1022,51 @@ io.on('connection', async (socket) => {
 
 
 server.listen(5000, () => console.log('server is listening port 5000'));
+
+// 定时检查文件夹大小
+function scheduledCheckFolder(folderPath, maxSize, interval) {
+    setInterval(() => {
+        const folderSize = getFolderSize(folderPath);
+        if (folderSize > maxSize) {
+            console.log(`Folder size exceeds ${maxSize} bytes. Clearing folder...`);
+            clearFolder(folderPath);
+        }
+    }, interval);
+}
+
+const temp_folderPath = 'temps';
+const temp_maxFolderSizeBytes = 1024 * 1024 * 1024; // 1GB
+const temp_interval = 3600000; // 每小时检查一次（单位：毫秒）
+const uploads_folderPath = 'uploads';
+const uploads_maxFolderSizeBytes = 1024 * 1024 * 1024; // 1GB
+const uploads_interval = 3600000 * 24; // 每天检查一次（单位：毫秒）
+
+function getFolderSize(folderPath) {
+    let totalSize = 0;
+    const files = fs.readdirSync(folderPath);
+
+    files.forEach(file => {
+        const filePath = path.join(folderPath, file);
+        const stats = fs.statSync(filePath);
+        if (stats.isFile()) {
+            totalSize += stats.size;
+        }
+    });
+
+    return totalSize;
+}
+
+function clearFolder(folderPath) {
+    const files = fs.readdirSync(folderPath);
+
+    files.forEach(file => {
+        const filePath = path.join(folderPath, file);
+        fs.unlinkSync(filePath);
+    });
+
+    console.log(`Folder ${folderPath} cleared.`);
+}
+
+scheduledCheckFolder(temp_folderPath, temp_maxFolderSizeBytes, temp_interval);
+scheduledCheckFolder(uploads_folderPath, uploads_maxFolderSizeBytes, uploads_interval);
+console.log('定时清理文件任务已开启...');
