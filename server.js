@@ -507,7 +507,7 @@ const TreeModel = require('tree-model');
  *
  */
 const liveTrees = {}
-const ChildrenMaxSize = 3;
+const ChildrenMaxSize = 2;
 
 const getSocketRoomsExcludeSelf = (socket) => {
     const allRooms = Array.from(socket.rooms.keys());
@@ -559,9 +559,8 @@ function handleLiveStream(socket) {
             // 移除节点
             const node = getTreeNodeBySid(lid, socket.id);
             if (node) {
-                const droppedNode = node.drop();
                 // 以node为根刷新树结构，所有子节点重连
-                droppedNode.walk({
+                node.walk({
                     strategy: 'breadth',
                 }, (node) => {
                     const sid = node.model.sid;
@@ -569,6 +568,7 @@ function handleLiveStream(socket) {
                         connectedSockets[sid].emit("reconnectLiveRoom", lid);
                     }
                 });
+                node.drop();
             }
             // 更新观众数量
             const nViewer = getRoomViewerCount(lid);
@@ -585,6 +585,16 @@ function handleLiveStream(socket) {
         }
         return viewers;
     };
+    const isRelay = (to) => {
+        let isRelay = false;
+        const otherRooms = getSocketRoomsExcludeSelf(socket);
+        if (otherRooms.length > 0) {
+            const lid = otherRooms[0];
+            const rootSid = liveTrees[lid]?.root?.model?.sid;
+            isRelay = rootSid !== to;
+        }
+        return isRelay;
+    }
 
     socket.on("createLiveRoom", () => {
         let lid;
@@ -667,7 +677,7 @@ function handleLiveStream(socket) {
     socket.on("pushStream", (data) => {
         io.to(data.userToCall).emit("getLiveStream", {
             signal: data.signalData, from: data.from, name: data.name,
-            isInGame: data.isInGame
+            isInGame: data.isInGame, rootAnchorSid: data.rootAnchorSid,
         });
     });
 
@@ -710,11 +720,27 @@ function handleLiveStream(socket) {
     });
 
     socket.on("refreshLiveStream", (data) => {
-        io.to(data.to).emit("refreshLiveStream", { from: data.from });
+        const bRelay = isRelay(data.to);
+        io.to(data.to).emit("refreshLiveStream", {
+            from: data.from,
+            isRelay: bRelay
+        });
     });
 
     socket.on("refreshLiveScreenStream", (data) => {
-        io.to(data.to).emit("refreshLiveScreenStream", { from: data.from });
+        const bRelay = isRelay(data.to);
+        io.to(data.to).emit("refreshLiveScreenStream", {
+            from: data.from,
+            isRelay: bRelay
+        });
+    });
+
+    socket.on("pushLiveMsgs", (data) => {
+        const otherRooms = getSocketRoomsExcludeSelf(socket);
+        if (otherRooms.length > 0) {
+            const lid = otherRooms[0];
+            socket.to(lid).emit("getLiveMsgs", data);
+        }
     });
 
     socket.on('disconnecting', () => {
