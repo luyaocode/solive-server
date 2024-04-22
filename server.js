@@ -494,7 +494,67 @@ const generateLiveRoomId = (socketId) => {
 };
 
 //////////////////// 直播///////////////////////
+const TreeModel = require('tree-model');
+const liveTrees = {}
+const ChildrenMaxSize = 2;
+
 function handleLiveStream(socket) {
+
+    /**
+     * 找到房间中合适的转播节点
+     */
+    const getStreamer = (lid) => {
+        let streamerNode;
+        const liveTreeRoot = liveTrees[lid].root;
+        if (liveTreeRoot) {
+            liveTreeRoot.walk({
+                strategy: 'breadth',
+            }, (node) => {
+                if (node.children.length < ChildrenMaxSize) {
+                    streamerNode = node;
+                    return false;
+                }
+            });
+        }
+        return streamerNode;
+    };
+
+    const getTreeNodeBySid = (lid, sid) => {
+        let resNode;
+        const liveTreeRoot = liveTrees[lid]?.root?.first();
+        if (liveTreeRoot) {
+            liveTreeRoot.walk({
+                strategy: 'breadth',
+            }, (node) => {
+                if (node.model.sid === sid) {
+                    resNode = node;
+                    return false;
+                }
+            });
+        }
+        return resNode;
+    };
+
+    const leaveLiveRoom = () => {
+        const allRooms = Array.from(socket.rooms.keys());
+        const otherRooms = allRooms.filter(roomId => roomId !== socket.id);
+        if (otherRooms.length > 0) {
+            const lid = otherRooms[0];
+            // 移除节点
+            const node = getTreeNodeBySid(lid, socket.id);
+            if (node) {
+                // 以node为根刷新树结构，所有子节点重连
+                node.walk({
+                    strategy: 'breadth',
+                }, (node) => {
+                    const sid = node.model.sid;
+                    connectedSockets[sid].emit("reconnectLiveRoom", lid);
+                });
+                node.drop();
+            }
+        }
+    };
+
     socket.on("createLiveRoom", () => {
         let lid;
         if (liveRooms[socket.id]) {
@@ -504,6 +564,17 @@ function handleLiveStream(socket) {
             lid = generateLiveRoomId(socket.id);
             liveRooms[socket.id] = lid;
         }
+        if (!liveTrees[lid]) {
+            const treeModel = new TreeModel();
+            const rootNode = treeModel.parse({
+                sid: socket.id,
+            });
+            liveTrees[lid] = {
+                treeModel: treeModel,
+                root: rootNode,
+            }
+            socket.join(lid);
+        }
         socket.emit("liveStreamRoomId", lid);
     });
 
@@ -511,12 +582,24 @@ function handleLiveStream(socket) {
         let res = false;
         for (let sid in liveRooms) {
             if (liveRooms[sid] === lid) {
-                res = sid;
-                break;
+                // 找到房间中可用的转播者
+                const streamerNode = getStreamer(lid);
+                if (streamerNode) {
+                    const newNode = liveTrees[lid].treeModel.parse({ sid: socket.id });
+                    streamerNode.addChild(newNode);
+                    res = streamerNode.model.sid;
+                    break;
+                }
             }
         }
         if (res) {
-            io.to(res).emit("enterLiveRoomRequest", socket.id);
+            const anchorSid = Object.keys(liveRooms).find(key => liveRooms[key] === lid);
+            let isRelay = res !== anchorSid; // 是否转播
+            io.to(res).emit("enterLiveRoomRequest", {
+                vid: socket.id,
+                isRelay: isRelay,
+            });
+            socket.join(lid);
         }
         else {
             socket.emit("liveRoomNotExist", "liveRoomNotExist");
@@ -590,9 +673,17 @@ function handleLiveStream(socket) {
         io.to(data.to).emit("refreshLiveScreenStream", { from: data.from });
     });
 
+    socket.on('disconnecting', () => {
+        leaveLiveRoom();
+    });
+
     socket.on('disconnect', () => {
         deleteWaitingViewer(socket.id);
+        const lid = liveRooms[socket.id];
         delete liveRooms[socket.id];
+        if (lid) {
+            delete liveTrees[lid];
+        }
     });
 }
 

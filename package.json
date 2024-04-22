@@ -12,7 +12,8 @@
     "puppeteer": "^22.4.1",
     "socket.io": "^4.7.4",
     "socket.io-client": "^4.7.4",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "tree-model": "^1.0.7"
   },
   "scripts": {
     "start": "cross-env NODE_ENV=prod node server.js",
