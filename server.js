@@ -298,6 +298,9 @@ function getRoomUserCount(roomId) {
         return 0;
     }
 }
+function getRoomViewerCount(roomId) {
+    return getRoomUserCount(roomId) - 1;
+}
 
 // 获取指定房间内的其他socket
 function getOtherSocketsInRoom(roomId, currentSocket) {
@@ -495,8 +498,22 @@ const generateLiveRoomId = (socketId) => {
 
 //////////////////// 直播///////////////////////
 const TreeModel = require('tree-model');
+/**
+ * lid:房间号
+ * {
+ *  treeModel:树模型
+ *  root:根节点
+ * }
+ *
+ */
 const liveTrees = {}
-const ChildrenMaxSize = 2;
+const ChildrenMaxSize = 3;
+
+const getSocketRoomsExcludeSelf = (socket) => {
+    const allRooms = Array.from(socket.rooms.keys());
+    const otherRooms = allRooms.filter(roomId => roomId !== socket.id);
+    return otherRooms;
+}
 
 function handleLiveStream(socket) {
 
@@ -536,23 +553,37 @@ function handleLiveStream(socket) {
     };
 
     const leaveLiveRoom = () => {
-        const allRooms = Array.from(socket.rooms.keys());
-        const otherRooms = allRooms.filter(roomId => roomId !== socket.id);
+        const otherRooms = getSocketRoomsExcludeSelf(socket);
         if (otherRooms.length > 0) {
             const lid = otherRooms[0];
             // 移除节点
             const node = getTreeNodeBySid(lid, socket.id);
             if (node) {
+                const droppedNode = node.drop();
                 // 以node为根刷新树结构，所有子节点重连
-                node.walk({
+                droppedNode.walk({
                     strategy: 'breadth',
                 }, (node) => {
                     const sid = node.model.sid;
-                    connectedSockets[sid].emit("reconnectLiveRoom", lid);
+                    if (connectedSockets[sid]) {
+                        connectedSockets[sid].emit("reconnectLiveRoom", lid);
+                    }
                 });
-                node.drop();
             }
+            // 更新观众数量
+            const nViewer = getRoomViewerCount(lid);
+            io.to(lid).emit('getViewerNumber', nViewer - 1);
         }
+
+    };
+
+    const getAllRoomViewerNumber = () => {
+        let viewers = {};
+        for (let key in liveRooms) {
+            const nViewer = getRoomViewerCount(liveRooms[key]);
+            viewers[liveRooms[key]] = nViewer;
+        }
+        return viewers;
     };
 
     socket.on("createLiveRoom", () => {
@@ -599,7 +630,6 @@ function handleLiveStream(socket) {
                 vid: socket.id,
                 isRelay: isRelay,
             });
-            socket.join(lid);
         }
         else {
             socket.emit("liveRoomNotExist", "liveRoomNotExist");
@@ -607,7 +637,8 @@ function handleLiveStream(socket) {
     });
 
     socket.on("queryLiveRooms", () => {
-        socket.emit("getLiveRooms", liveRooms);
+        const viewers = getAllRoomViewerNumber();
+        socket.emit("getLiveRooms", { liveRooms, viewers });
     });
 
     socket.on("anchorOffline", (data) => {
@@ -640,8 +671,21 @@ function handleLiveStream(socket) {
         });
     });
 
-    socket.on("acceptStream", (data) => {
+    socket.on("acceptStream", async (data) => {
         io.to(data.to).emit("streamAccepted", { signal: data.signal, name: data.name, from: data.from });
+
+        // update live room's viewer number
+        const viewerSocket = connectedSockets[data.from];
+        const socketTo = connectedSockets[data.to];
+        const otherRooms = getSocketRoomsExcludeSelf(socketTo);
+        if (otherRooms.length > 0) {
+            const lid = otherRooms[0];
+            if (viewerSocket) {
+                await viewerSocket.join(lid);
+                const nViewer = getRoomViewerCount(lid);
+                io.to(lid).emit('getViewerNumber', nViewer);
+            }
+        }
     });
 
     socket.on("pushScreenStream", (data) => {
