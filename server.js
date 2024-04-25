@@ -1,4 +1,6 @@
-const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info } = require('./ConstDefine.js');
+const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info,
+    Table_User_Info
+} = require('./ConstDefine.js');
 // const { formatDate } = require("./plugins.js");
 const ffi = require("ffi-napi");
 // 定义要调用的函数及其参数类型
@@ -88,10 +90,21 @@ db.serialize(() => {
         currentTime DATETIME,
         FOREIGN KEY (gameId) REFERENCES game_info(gameId)
     )`;
+
+    const create_user_info = `CREATE TABLE IF NOT EXISTS ${Table_User_Info} (
+        UserID INTEGER PRIMARY KEY AUTOINCREMENT,
+        UserName TEXT NOT NULL UNIQUE,
+        PasswordHash TEXT NOT NULL,
+        Salt TEXT NOT NULL,
+        Iterations INTEGER NOT NULL,
+        CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        LastModifiedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`;
     db.run(create_table_system);
     db.run(create_table_client_ips);
     db.run(create_table_game_info);
     db.run(create_table_step_info);
+    db.run(create_user_info);
 });
 
 function getHistoryPeekUsers() {
@@ -199,7 +212,7 @@ function insertIps(clientIp, currentTime, location) {
     });
 }
 
-// 查询表
+// 打印表
 function printTable(tableName) {
     db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
         if (err) {
@@ -216,6 +229,39 @@ function printTable(tableName) {
         }
     });
 }
+
+// 查询
+function getAllRecordsByCondition(tableName, condition) {
+    return new Promise((resolve, reject) => {
+        const query = `SELECT * FROM ${tableName} WHERE ${condition}`;
+        db.all(query, (err, rows) => {
+            if (err) {
+                reject(err.message);
+                return;
+            }
+            resolve(rows);
+        });
+    });
+}
+
+// 插入
+function insertRecord(tableName, record) {
+    return new Promise((resolve, reject) => {
+        const keys = Object.keys(record);
+        const placeholders = keys.map(() => '?').join(',');
+        const values = Object.values(record);
+        const query = `INSERT INTO ${tableName} (${keys.join(',')}) VALUES (${placeholders})`;
+        db.run(query, values, function (err) {
+            if (err) {
+                reject(err.message);
+                return;
+            }
+            resolve(this.lastID); // 返回插入的记录的自增 ID
+        });
+    });
+}
+
+
 
 // 删除表
 function dropTable(tableName) {
@@ -838,6 +884,44 @@ function extractIPv4FromIPv6(ipv6) {
     return ipv6; // 如果未找到IPv4地址，则返回null
 }
 
+// 定义生成哈希密码的函数
+function generateHashedPassword(password) {
+    return new Promise((resolve, reject) => {
+        // 生成盐
+        const salt = crypto.randomBytes(16).toString('hex');
+        // 设置迭代次数
+        const iterations = 1000;
+        // 使用 PBKDF2 算法生成哈希密码
+        crypto.pbkdf2(password, salt, iterations, 64, 'sha512', (err, derivedKey) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            const hashedPassword = derivedKey.toString('hex');
+            // 将生成的哈希密码、盐和迭代次数一起返回
+            resolve({ hashedPassword, salt, iterations });
+        });
+    });
+}
+
+function verifyPassword(password, salt, iterations, hashedPassword) {
+    return new Promise((resolve, reject) => {
+        crypto.pbkdf2(password, salt, iterations, 64, 'sha512', (err, derivedKey) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            const inputHashedPassword = derivedKey.toString('hex');
+            // 比对用户输入的哈希密码和数据库中存储的哈希密码是否相同
+            if (inputHashedPassword === hashedPassword) {
+                resolve(true); // 密码验证通过
+            } else {
+                resolve(false); // 密码验证失败
+            }
+        });
+    });
+}
+
 io.on('connection', async (socket) => {
     // 更新ip表
     const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
@@ -1110,15 +1194,23 @@ io.on('connection', async (socket) => {
 
     // 登录
     socket.on('login', ({ account, passwd }) => {
-        if (account === 'admin' && passwd === 'admin') {
-            socket.emit('login_resp', true);
-            // 生成Token
-            const token = generateToken(payload, secretKey);
-            socket.emit('token', token);
-        }
-        else {
-            socket.emit('login_resp', false);
-        }
+        const condition = `UserName='${account}'`;
+        getAllRecordsByCondition(Table_User_Info, condition).then(res => {
+            if (res.length === 1) {
+                const user = res[0];
+                verifyPassword(passwd, user.Salt, user.Iterations, user.PasswordHash).then(res => {
+                    if (res) {
+                        socket.emit('login_resp', true);
+                        // 生成Token
+                        const token = generateToken(payload, secretKey);
+                        socket.emit('token', token);
+                    }
+                    else {
+                        socket.emit('login_resp', false);
+                    }
+                });
+            }
+        })
     });
 
     socket.on('verifyToken', (token) => {
@@ -1127,6 +1219,55 @@ io.on('connection', async (socket) => {
             console.error('Token is invalid. Error:', result.error);
         }
         socket.emit('token_valid', result.isValid);
+    });
+
+    socket.on("signup", (data) => {
+        if (data.account) {
+            const condition = `UserName='${data.account}'`;
+            getAllRecordsByCondition(Table_User_Info, condition).then(res => {
+                if (res.length > 0) {
+                    console.log(`用户账号${data.account}已存在`);
+                    socket.emit('account_existed', data.account);
+                }
+                else if (res.length === 0) {
+                    generateHashedPassword(data.passwd).then(({ hashedPassword, salt, iterations }) => {
+                        const recordToInsert = {
+                            Username: data.account,
+                            PasswordHash: hashedPassword,
+                            Salt: salt,
+                            Iterations: iterations,
+                        };
+                        insertRecord(Table_User_Info, recordToInsert)
+                            .then((lastID) => {
+                                console.log(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
+                                socket.emit("signup_ok", (data));
+                            })
+                            .catch((error) => {
+                                console.error(`注册${data.account}失败:`, error);
+                                socket.emit("signup_failed", (data));
+                            });
+                    });
+                }
+            }).catch(e => {
+                generateHashedPassword(data.passwd).then(({ hashedPassword, salt, iterations }) => {
+                    const recordToInsert = {
+                        Username: data.account,
+                        PasswordHash: hashedPassword,
+                        Salt: salt,
+                        Iterations: iterations,
+                    };
+                    insertRecord(Table_User_Info, recordToInsert)
+                        .then((lastID) => {
+                            console.log(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
+                            socket.emit("signup_ok", (data));
+                        })
+                        .catch((error) => {
+                            console.error(`注册${data.account}失败:`, error);
+                            socket.emit("signup_failed", (data));
+                        });
+                });
+            });
+        }
     });
 
     // 发送数据库数据
@@ -1234,6 +1375,8 @@ function clearFolder(folderPath) {
     console.log(`Folder ${folderPath} cleared.`);
 }
 
+clearFolder(temp_folderPath);
+clearFolder(uploads_folderPath);
 scheduledCheckFolder(temp_folderPath, temp_maxFolderSizeBytes, temp_interval);
 scheduledCheckFolder(uploads_folderPath, uploads_maxFolderSizeBytes, uploads_interval);
 console.log('定时清理文件任务已开启...');
