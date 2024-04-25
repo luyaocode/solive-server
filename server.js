@@ -507,7 +507,7 @@ const TreeModel = require('tree-model');
  *
  */
 const liveTrees = {}
-const ChildrenMaxSize = 2;
+const ChildrenMaxSize = 8;
 
 const getSocketRoomsExcludeSelf = (socket) => {
     const allRooms = Array.from(socket.rooms.keys());
