@@ -922,52 +922,7 @@ function verifyPassword(password, salt, iterations, hashedPassword) {
     });
 }
 
-io.on('connection', async (socket) => {
-    // 更新ip表
-    const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-    const ipv4 = extractIPv4FromIPv6(clientIp);
-    const currentTime = getBeijingTime();
-    const { country, region, city } = await getLocationByIP(ipv4);
-    const location = country + ' ' + region + ' ' + city;
-    insertIps(ipv4, currentTime, location);
-
-    // 欢迎语
-    console.log(`Client connected: ${socket.id}`);
-    socket.emit('message', 'Hello, ' + socket.id);
-    socket.emit('connected');
-    connectedSockets[socket.id] = socket;
-
-    // 在线人数统计
-    let currentHeadCount = getCurrentHeadCount();
-    getHistoryPeekUsers()
-        .then(({ peek, timestamp }) => {
-            let historyPeekUsers;
-            if (currentHeadCount > peek) {
-                updateHistoryPeekUsers(currentHeadCount);
-                historyPeekUsers = currentHeadCount;
-            }
-            else {
-                historyPeekUsers = peek;
-            }
-            io.emit('currentHeadCount', currentHeadCount);
-            io.emit('historyPeekUsers', historyPeekUsers);
-        })
-        .catch(err => {
-            console.error('查询失败:', err);
-        });
-    // 发送公告板消息
-    socket.emit('publicMsgs', publicMsgs);
-    socket.emit('notices', teamMsgs);
-
-    // 视频通话
-    handleVideoChat(socket);
-
-    // 直播
-    handleLiveStream(socket);
-
-    // 文件传输
-    handleFileUpload(socket);
-
+function handleGame(socket) {
     // 监听加入房间请求
     socket.on('joinRoom', async ({ roomId, nickName, deviceType, boardWidth, boardHeight, locationData, shareRoom }) => {
         const roomSize = getRoomUserCount(roomId);
@@ -1192,6 +1147,68 @@ io.on('connection', async (socket) => {
         io.to(roomId).emit('undoRound', { resp, socketId });
     });
 
+    socket.on('inviteGame', () => {
+        const otherSocketIds = Object.keys(connectedSockets).filter(id => {
+            return id !== socket.id && connectedSockets[id].rooms.size === 1 &&
+                connectedSockets[id].rooms.has(id);
+        });
+        if (otherSocketIds.length > 0) {
+            const randomIndex = Math.floor(Math.random() * otherSocketIds.length);
+            const randomSocketId = otherSocketIds[randomIndex];
+            io.to(randomSocketId).emit('inviteGame');
+        }
+    });
+
+    // 监听聊天
+    socket.on('chatMessage', (newMessage) => {
+        const anotherSocket = getAnotherSocketInRoom(socket);
+        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
+            return;
+        }
+        const { text } = newMessage;
+        anotherSocket.emit('chat_message', text);
+    })
+}
+
+async function handleStart(socket) {
+    // 在线人数统计
+    let currentHeadCount = getCurrentHeadCount();
+    getHistoryPeekUsers()
+        .then(({ peek, timestamp }) => {
+            let historyPeekUsers;
+            if (currentHeadCount > peek) {
+                updateHistoryPeekUsers(currentHeadCount);
+                historyPeekUsers = currentHeadCount;
+            }
+            else {
+                historyPeekUsers = peek;
+            }
+            io.emit('currentHeadCount', currentHeadCount);
+            io.emit('historyPeekUsers', historyPeekUsers);
+        })
+        .catch(err => {
+            console.error('查询失败:', err);
+        });
+    // 发送公告板消息
+    socket.emit('publicMsgs', publicMsgs);
+    socket.emit('notices', teamMsgs);
+
+    // 欢迎语
+    socket.emit('connected');
+    console.log(`Client connected: ${socket.id}`);
+    socket.emit('message', 'Hello, ' + socket.id);
+    connectedSockets[socket.id] = socket;
+
+    // 更新ip表
+    const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    const ipv4 = extractIPv4FromIPv6(clientIp);
+    const currentTime = getBeijingTime();
+    const { country, region, city } = await getLocationByIP(ipv4);
+    const location = country + ' ' + region + ' ' + city;
+    insertIps(ipv4, currentTime, location);
+}
+
+function handleLogin(socket) {
     // 登录
     socket.on('login', ({ account, passwd }) => {
         const condition = `UserName='${account}'`;
@@ -1200,7 +1217,7 @@ io.on('connection', async (socket) => {
                 const user = res[0];
                 verifyPassword(passwd, user.Salt, user.Iterations, user.PasswordHash).then(res => {
                     if (res) {
-                        socket.emit('login_resp', true);
+                        socket.emit('login_resp', account);
                         // 生成Token
                         const token = generateToken(payload, secretKey);
                         socket.emit('token', token);
@@ -1269,48 +1286,12 @@ io.on('connection', async (socket) => {
             });
         }
     });
+}
 
+function handleOther(socket) {
     // 发送数据库数据
     socket.on('fetchTable', (tableName) => {
         sendTableData(tableName, socket);
-    });
-
-    // 监听聊天
-    socket.on('chatMessage', (newMessage) => {
-        const anotherSocket = getAnotherSocketInRoom(socket);
-        if (anotherSocket === undefined || anotherSocket === null || !anotherSocket.connected) {
-            return;
-        }
-        const { text } = newMessage;
-        anotherSocket.emit('chat_message', text);
-    })
-
-    // 监听客户端断开连接事件
-    socket.on('disconnect', () => {
-        if (users[socket.id] && users[socket.id].roomId) {
-            const roomId = users[socket.id].roomId;
-            const nickName = users[socket.id].nickName;
-            io.to(roomId).emit('playerDisconnected', nickName + '断开连接');
-        }
-        console.log(`Client disconnected: ${socket.id}`);
-        delete connectedSockets[socket.id];
-        delete users[socket.id];
-        matchingArray = matchingArray.filter(item => item !== socket.id);
-        let currentHeadCount = getCurrentHeadCount();
-        io.emit('currentHeadCount', currentHeadCount);
-
-    });
-
-    socket.on('inviteGame', () => {
-        const otherSocketIds = Object.keys(connectedSockets).filter(id => {
-            return id !== socket.id && connectedSockets[id].rooms.size === 1 &&
-                connectedSockets[id].rooms.has(id);
-        });
-        if (otherSocketIds.length > 0) {
-            const randomIndex = Math.floor(Math.random() * otherSocketIds.length);
-            const randomSocketId = otherSocketIds[randomIndex];
-            io.to(randomSocketId).emit('inviteGame');
-        }
     });
 
     // 监听用户发布广播消息
@@ -1326,6 +1307,51 @@ io.on('connection', async (socket) => {
         const strDate = getformatNowTime();
         socket.emit('formatDateGot', strDate);
     });
+}
+
+function handleDisconnect(socket) {
+    // 监听客户端断开连接事件
+    socket.on('disconnect', () => {
+        if (users[socket.id] && users[socket.id].roomId) {
+            const roomId = users[socket.id].roomId;
+            const nickName = users[socket.id].nickName;
+            io.to(roomId).emit('playerDisconnected', nickName + '断开连接');
+        }
+        console.log(`Client disconnected: ${socket.id}`);
+        delete connectedSockets[socket.id];
+        delete users[socket.id];
+        matchingArray = matchingArray.filter(item => item !== socket.id);
+        let currentHeadCount = getCurrentHeadCount();
+        io.emit('currentHeadCount', currentHeadCount);
+
+    });
+}
+
+io.on('connection', async (socket) => {
+
+    // 开始
+    await handleStart(socket);
+
+    // 视频通话
+    handleVideoChat(socket);
+
+    // 直播
+    handleLiveStream(socket);
+
+    // 文件传输
+    handleFileUpload(socket);
+
+    // 游戏
+    handleGame(socket);
+
+    // 登录系统
+    handleLogin(socket);
+
+    // 其他
+    handleOther(socket);
+
+    // 断开
+    handleDisconnect(socket);
 });
 
 
