@@ -261,7 +261,18 @@ function insertRecord(tableName, record) {
     });
 }
 
-
+// 删除记录
+function deleteRecordByCondition(tableName, condition) {
+    const sql = `DELETE FROM ${tableName} WHERE ${condition}`;
+    db.run(sql, function (err) {
+        if (err) {
+            return;
+        }
+        else {
+            console.log(`${tableName} 删除记录 ${condition}`)
+        }
+    });
+}
 
 // 删除表
 function dropTable(tableName) {
@@ -1286,6 +1297,15 @@ function handleLogin(socket) {
             });
         }
     });
+
+    socket.on("deleteAccount", (userName) => {
+        if (userName) {
+            if (userName === 'admin') {
+                return;
+            }
+            deleteRecordByCondition(Table_User_Info, `UserName='${userName}'`);
+        }
+    });
 }
 
 function handleOther(socket) {
@@ -1327,10 +1347,7 @@ function handleDisconnect(socket) {
     });
 }
 
-io.on('connection', async (socket) => {
-
-    // 开始
-    await handleStart(socket);
+io.on('connection', socket => {
 
     // 视频通话
     handleVideoChat(socket);
@@ -1352,6 +1369,9 @@ io.on('connection', async (socket) => {
 
     // 断开
     handleDisconnect(socket);
+
+    // 开始
+    handleStart(socket);
 });
 
 
