@@ -1,12 +1,24 @@
-const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info,
+// const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info,
+//     Table_User_Info
+// } = require('./ConstDefine.js');
+import {
+    Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info,
     Table_User_Info
-} = require('./ConstDefine.js');
+} from "./ConstDefine.js";
 // const { formatDate } = require("./plugins.js");
-const ffi = require("ffi-napi");
+// const ffi = require("ffi-napi");
+import * as ffi from 'ffi-napi';
+
 // 定义要调用的函数及其参数类型
 const lib = ffi.Library('lib/libChaosGomokuUtils', {
     'getformatCurrBjTime': ['string', []]
 });
+
+import {
+    createWorker,
+    createWebrtcTransport,
+} from './dist/worker.js';
+// const createWorker = require('./dist/worker.js');
 function getformatNowTime() {
     return lib.getformatCurrBjTime();
 }
@@ -52,10 +64,13 @@ const TitleNotice = {
 }
 
 // axios
-const axios = require('axios');
+// const axios = require('axios');
+import axios from "axios";
 
 // SQLite
-const sqlite3 = require('sqlite3').verbose();
+// const sqlite3 = require('sqlite3').verbose();
+import sqlite3 from "sqlite3";
+
 const db = new sqlite3.Database('chaos-gomoku.db');
 // 测试用
 // dropTable(Table_Game_Info);
@@ -284,7 +299,9 @@ function dropTable(tableName) {
 }
 
 // Jwt
-const jwt = require('jsonwebtoken');
+// const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
+
 const secretKey = 'chaos-gomoku'; // 用于签名Token的密钥，务必保密
 const payload = { userId: 'admin', username: 'admin' };
 
@@ -304,12 +321,21 @@ function verifyToken(token, secretKey) {
 }
 
 // Server
-const express = require('express');
-const http = require('http');
-const https = require('https');
+// const express = require('express');
+// const http = require('http');
+// const https = require('https');
+// const app = express();
+// const fs = require('fs');
+// const path = require('path');
+
+import express from 'express';
+import http from 'http';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
+
 const app = express();
-const fs = require('fs');
-const path = require('path');
+
 let ssl_crt, ssl_key;
 let server, options;
 if (process.env.NODE_ENV === 'prod') {
@@ -325,8 +351,10 @@ else if (process.env.NODE_ENV === 'dev') {
     server = http.createServer(app);
 }
 
-const socket = require('socket.io');
-const io = socket(server, {
+// const socket = require('socket.io');
+import * as socket from 'socket.io';
+
+const io = new socket.Server(server, {
     cors: {
         origin: '*',
         method: ["GET", "POST"]
@@ -407,7 +435,8 @@ function getCurrentHeadCount() {
     return io.sockets.sockets.size;
 }
 
-const crypto = require('crypto');
+// const crypto = require('crypto');
+import crypto from 'crypto';
 
 function generateRoomId(socketId1, socketId2) {
     // Combine the two socket IDs into a single string
@@ -554,7 +583,8 @@ const generateLiveRoomId = (socketId) => {
 };
 
 //////////////////// 直播///////////////////////
-const TreeModel = require('tree-model');
+// const TreeModel = require('tree-model');
+import TreeModel from 'tree-model';
 /**
  * lid:房间号
  * {
@@ -1347,7 +1377,194 @@ function handleDisconnect(socket) {
     });
 }
 
+const meetRooms = new Map();
+let mediasoupRouter;
+// let producerTransport;
+// let producer;
+// let consumerTransport;
+// let consumer;
+async function initMeet() {
+    try {
+        mediasoupRouter = await createWorker();
+    } catch (error) {
+        throw error;
+    }
+}
+
+initMeet();
+
+const generateMeetRoomId = (socketId) => {
+    const combinedSocketId = `${socketId}`;
+    const hash = crypto.createHash('sha256');
+    hash.update(combinedSocketId);
+    const hashedSocketId = hash.digest('hex');
+    return hashedSocketId.slice(0, 12);
+};
+
+function getMeetRoom(socket) {
+    const otherRooms = getSocketRoomsExcludeSelf(socket);
+    if (otherRooms.length === 0) {
+        return null;
+    }
+    const rid = otherRooms[0];
+    const room = meetRooms.get(rid);
+    return room;
+}
+
+function leaveRoom(socket, rid) {
+    socket.leave(rid);
+}
+
+function handleMeet(socket) {
+    socket.on("createMeetRoom", async () => {
+        let rid = generateMeetRoomId(socket.id);
+        const room = {
+            id: rid,
+            router: mediasoupRouter,
+            producerTransports: new Map(), // Map to store transports for each peer
+            consumerTransports: new Map(), // Map to store transports for each peer
+            producers: new Map(),  // Map to store producers for each peer
+            consumers: new Map()   // Map to store consumers for each peer
+        };
+        meetRooms.set(rid, room);
+        await socket.join(rid);
+        socket.emit("meetRoomCreated", rid);
+    });
+
+    socket.on("enterMeetRoom", (data) => {
+        const room = getMeetRoom(socket);
+        if (room) {
+            leaveRoom(socket, room.id);
+        }
+        socket.join(data);
+    });
+
+    socket.on("getRouterRtpCapabilities", () => {
+        socket.emit("routerRtpCapabilities", mediasoupRouter.rtpCapabilities);
+    });
+
+    socket.on("createProducerTransport", async (msg) => {
+        try {
+            const { transport, params } = await createWebrtcTransport(mediasoupRouter);
+            const room = getMeetRoom(socket);
+            room.producerTransports.set(socket.id, transport);
+            // producerTransport = transport;
+            socket.emit("producerTransportCreated", params);
+        } catch (error) {
+            console.error(error);
+        }
+    });
+
+    socket.on("connectProducerTransport", async (data) => {
+        const room = getMeetRoom(socket);
+        const producerTransport = room.producerTransports.get(socket.id);
+        // await producerTransport.connect({ dtlsParameters: data });
+        await producerTransport.connect({ dtlsParameters: data });
+        socket.emit("producerConnected");
+    });
+
+    socket.on("produce", async (data) => {
+        const { kind, rtpParameters } = data;
+        const room = getMeetRoom(socket);
+        const producerTransport = room.producerTransports.get(socket.id);
+        // producer = await producerTransport.produce({ kind, rtpParameters });
+        let prod = await producerTransport.produce({ kind, rtpParameters });
+        room.producers.set(socket.id, prod);
+        socket.emit("produced", prod.id);
+        socket.broadcast.emit('newProducer');
+    });
+
+    socket.on("createConsumerTransport", async (msg) => {
+        try {
+            const room = getMeetRoom(socket);
+            const { transport, params } = await createWebrtcTransport(mediasoupRouter);
+            room.consumerTransports.set(socket.id, transport);
+            // const { transport, params } = await createWebrtcTransport(mediasoupRouter);
+            // consumerTransport = transport;
+            socket.emit("consumerTransportCreated", params);
+        } catch (error) {
+            console.error(error);
+        }
+    });
+
+    socket.on("connectConsumerTransport", async (data) => {
+        const room = getMeetRoom(socket);
+        const consumerTransport = room.consumerTransports.get(socket.id);
+        await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
+        // await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
+        socket.emit("consumerConnected");
+    });
+
+    socket.on("resume", async () => {
+        const room = getMeetRoom(socket);
+        const consumer = room.consumers.get(socket.id);
+        await consumer.resume();
+        socket.emit("resumed");
+    });
+
+    socket.on("consume", async (data) => {
+        const room = getMeetRoom(socket);
+        let ress = [];
+        for (const producer of room.producers.values()) {
+            const res = await createConsumer(producer, data, socket);
+            ress.push(res);
+        }
+        socket.emit("subscribed", ress);
+    });
+
+    socket.on('disconnecting', () => {
+        // leaveLiveRoom();
+    });
+
+    socket.on('disconnect', () => {
+        // deleteWaitingViewer(socket.id);
+        // const lid = liveRooms[socket.id];
+        // delete liveRooms[socket.id];
+        // if (lid) {
+        //     delete liveTrees[lid];
+        // }
+        // 检查房主是否退出房间，如果退出了
+    });
+}
+
+const createConsumer = async (producer, rtpCapabilities, socket) => {
+    if (!producer) {
+        return;
+    }
+    if (!mediasoupRouter.canConsume({
+        producerId: producer.id,
+        rtpCapabilities,
+    })) {
+        console.error("can't consume");
+        return;
+    }
+    let consumer;
+    try {
+        const room = getMeetRoom(socket);
+        const consumerTransport = room.consumerTransports.get(socket.id);
+        consumer = await consumerTransport.consume({
+            producerId: producer.id,
+            rtpCapabilities,
+            paused: producer.kind === 'video',
+        });
+        room.consumers.set(socket.id, consumer);
+    } catch (error) {
+        console.error(error);
+        return;
+    }
+    return {
+        producerId: producer.id,
+        id: consumer.id,
+        kind: consumer.kind,
+        rtpParameters: consumer.rtpParameters,
+        type: consumer.type,
+        producerPaused: consumer.producerPaused,
+    }
+}
+
 io.on('connection', socket => {
+    // 会议
+    handleMeet(socket);
 
     // 视频通话
     handleVideoChat(socket);
