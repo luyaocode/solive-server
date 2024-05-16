@@ -1421,22 +1421,27 @@ function handleMeet(socket) {
         const room = {
             id: rid,
             router: mediasoupRouter,
-            producerTransports: new Map(), // Map to store transports for each peer
-            consumerTransports: new Map(), // Map to store transports for each peer
-            producers: new Map(),  // Map to store producers for each peer
-            consumers: new Map()   // Map to store consumers for each peer
+            producerTransports: new Map(), // Map to store transports for each peer.
+            // { socket.id: ProducerTransport }
+            consumerTransports: new Map(), // Map to store transports for each peer.
+            // { socket.id: ConsumerTransport }
+            producers: new Map(),  // Map to store producers for each peer.
+            // { socket.id: producerSet }
+            consumers: new Map()   // Map to store consumers for each peer.
+            // { socket.id:consumerMap{ producer.id, Consumer } }
         };
         meetRooms.set(rid, room);
         await socket.join(rid);
         socket.emit("meetRoomCreated", rid);
     });
 
-    socket.on("enterMeetRoom", (data) => {
+    socket.on("enterMeetRoom", async (data) => {
         const room = getMeetRoom(socket);
         if (room) {
             leaveRoom(socket, room.id);
         }
-        socket.join(data);
+        await socket.join(data);
+        socket.emit("meetRoomEntered");
     });
 
     socket.on("getRouterRtpCapabilities", () => {
@@ -1448,7 +1453,6 @@ function handleMeet(socket) {
             const { transport, params } = await createWebrtcTransport(mediasoupRouter);
             const room = getMeetRoom(socket);
             room.producerTransports.set(socket.id, transport);
-            // producerTransport = transport;
             socket.emit("producerTransportCreated", params);
         } catch (error) {
             console.error(error);
@@ -1457,8 +1461,8 @@ function handleMeet(socket) {
 
     socket.on("connectProducerTransport", async (data) => {
         const room = getMeetRoom(socket);
+        if (!room.producerTransports.has(socket.id)) return;
         const producerTransport = room.producerTransports.get(socket.id);
-        // await producerTransport.connect({ dtlsParameters: data });
         await producerTransport.connect({ dtlsParameters: data });
         socket.emit("producerConnected");
     });
@@ -1466,11 +1470,19 @@ function handleMeet(socket) {
     socket.on("produce", async (data) => {
         const { kind, rtpParameters } = data;
         const room = getMeetRoom(socket);
+        if (!room.producerTransports.has(socket.id)) return;
         const producerTransport = room.producerTransports.get(socket.id);
-        // producer = await producerTransport.produce({ kind, rtpParameters });
-        let prod = await producerTransport.produce({ kind, rtpParameters });
-        room.producers.set(socket.id, prod);
-        socket.emit("produced", prod.id);
+        let producer = await producerTransport.produce({ kind, rtpParameters });
+        let producerSet;
+        if (room.producers.has(socket.id)) {
+            producerSet = room.producers.get(socket.id);
+        }
+        else {
+            producerSet = new Set();
+            room.producers.set(socket.id, producerSet);
+        }
+        producerSet.add(producer);
+        socket.emit("produced", producer.id);
         socket.broadcast.emit('newProducer');
     });
 
@@ -1489,25 +1501,39 @@ function handleMeet(socket) {
 
     socket.on("connectConsumerTransport", async (data) => {
         const room = getMeetRoom(socket);
+        if (!room.consumerTransports.has(socket.id)) return;
         const consumerTransport = room.consumerTransports.get(socket.id);
         await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
-        // await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
         socket.emit("consumerConnected");
     });
 
     socket.on("resume", async () => {
         const room = getMeetRoom(socket);
-        const consumer = room.consumers.get(socket.id);
-        await consumer.resume();
+        if (room.consumers.size === 0) return;
+        for (const consumerMap of room.consumers.values()) {
+            if (consumerMap.size === 0) continue;
+            for (const consumer of consumerMap.values()) {
+                await consumer.resume();
+            }
+        }
         socket.emit("resumed");
     });
 
     socket.on("consume", async (data) => {
         const room = getMeetRoom(socket);
         let ress = [];
-        for (const producer of room.producers.values()) {
-            const res = await createConsumer(producer, data, socket);
-            ress.push(res);
+        if (room.producers.size === 0) return;
+        for (const sid of room.producers.keys()) {
+            if (sid === socket.id) {
+                continue;
+            }
+            const producerSet = room.producers.get(sid);
+            let consumers = [];
+            for (const producer of producerSet) {
+                const res = await createConsumer(producer, data, socket);
+                consumers.push(res);
+            }
+            ress.push(consumers);
         }
         socket.emit("subscribed", ress);
     });
@@ -1541,13 +1567,22 @@ const createConsumer = async (producer, rtpCapabilities, socket) => {
     let consumer;
     try {
         const room = getMeetRoom(socket);
+        if (!room.consumerTransports.has(socket.id)) return;
         const consumerTransport = room.consumerTransports.get(socket.id);
         consumer = await consumerTransport.consume({
             producerId: producer.id,
             rtpCapabilities,
             paused: producer.kind === 'video',
         });
-        room.consumers.set(socket.id, consumer);
+        let consumerMap;
+        if (room.consumers.has(socket.id)) {
+            consumerMap = room.consumers.get(socket.id);
+        }
+        else {
+            consumerMap = new Map();
+            room.consumers.set(socket.id, consumerMap);
+        }
+        consumerMap.set(producer.id, consumer);
     } catch (error) {
         console.error(error);
         return;
