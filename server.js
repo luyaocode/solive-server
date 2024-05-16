@@ -1436,11 +1436,23 @@ function handleMeet(socket) {
     });
 
     socket.on("enterMeetRoom", async (data) => {
-        const room = getMeetRoom(socket);
-        if (room) {
-            leaveRoom(socket, room.id);
+        let rid = data;
+        const lastRoom = getMeetRoom(socket);
+        if (lastRoom) {
+            leaveRoom(socket, lastRoom.id);
         }
-        await socket.join(data);
+        else if (!meetRooms.has(rid)) {
+            const newRoom = {
+                id: rid,
+                router: mediasoupRouter,
+                producerTransports: new Map(),
+                consumerTransports: new Map(),
+                producers: new Map(),
+                consumers: new Map()
+            };
+            meetRooms.set(rid, newRoom);
+        }
+        await socket.join(rid);
         socket.emit("meetRoomEntered");
     });
 
@@ -1530,12 +1542,49 @@ function handleMeet(socket) {
             const producerSet = room.producers.get(sid);
             let consumers = [];
             for (const producer of producerSet) {
-                const res = await createConsumer(producer, data, socket);
+                const res = await createConsumer(producer, data, socket, sid);
                 consumers.push(res);
             }
-            ress.push(consumers);
+            if (consumers.length > 0) {
+                ress.push(consumers);
+            }
         }
         socket.emit("subscribed", ress);
+    });
+
+    socket.on("consumeNewProducer", async (data) => {
+        const room = getMeetRoom(socket);
+        let ress = [];
+        if (room.producers.size !== 0) {
+            const consumerMap = room.consumers.get(socket.id);
+            for (const sid of room.producers.keys()) {
+                if (sid === socket.id) {
+                    continue;
+                }
+                const producerSet = room.producers.get(sid);
+                let consumers = [];
+                for (const producer of producerSet) {
+                    let isExist = false;
+                    if (consumerMap) {
+                        for (const producerId of consumerMap.keys()) {
+                            if (producer.id === producerId) {
+                                isExist = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (isExist) {
+                        continue;
+                    }
+                    const res = await createConsumer(producer, data, socket, sid);
+                    consumers.push(res);
+                }
+                if (consumers.length > 0) {
+                    ress.push(consumers);
+                }
+            }
+        }
+        socket.emit("newProducerConsumed", ress);
     });
 
     socket.on('disconnecting', () => {
@@ -1543,17 +1592,11 @@ function handleMeet(socket) {
     });
 
     socket.on('disconnect', () => {
-        // deleteWaitingViewer(socket.id);
-        // const lid = liveRooms[socket.id];
-        // delete liveRooms[socket.id];
-        // if (lid) {
-        //     delete liveTrees[lid];
-        // }
-        // 检查房主是否退出房间，如果退出了
+
     });
 }
 
-const createConsumer = async (producer, rtpCapabilities, socket) => {
+const createConsumer = async (producer, rtpCapabilities, socket, peerId) => {
     if (!producer) {
         return;
     }
@@ -1588,6 +1631,7 @@ const createConsumer = async (producer, rtpCapabilities, socket) => {
         return;
     }
     return {
+        peerId: peerId,/** */
         producerId: producer.id,
         id: consumer.id,
         kind: consumer.kind,
