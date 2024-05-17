@@ -5,8 +5,8 @@ export const config = {
     mediasoup: {
         numWorkers: Object.keys(os.cpus()).length,
         worker: {
-            rtcMinPort: 20000,
-            rtcMaxPort: 20100,
+            rtcMinPort: 10000,
+            rtcMaxPort: 10100,
             logLevel: 'debug',
             logTags: [
                 'info',

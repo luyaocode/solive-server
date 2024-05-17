@@ -50,7 +50,7 @@ const createWebrtcTransport = (mediasoupRouter) => __awaiter(void 0, void 0, voi
         params: {
             id: transport.id,
             iceParameters: transport.iceParameters,
-            iceCandidates: transport.iceCandidates,
+            iceCandidate: transport.iceCandidates,
             dtlsParameters: transport.dtlsParameters,
         }
     };
