@@ -1588,7 +1588,13 @@ function handleMeet(socket) {
     });
 
     socket.on('disconnecting', () => {
-        // leaveLiveRoom();
+        const room = getMeetRoom(socket);
+        if (room) {
+            room.producerTransports?.delete(socket.id);
+            room.consumerTransports?.delete(socket.id);
+            room.producers?.delete(socket.id);
+            room.consumers?.delete(socket.id);
+        }
     });
 
     socket.on('disconnect', () => {

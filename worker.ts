@@ -57,7 +57,7 @@ const createWebrtcTransport = async (mediasoupRouter: Router) => {
         params: {
             id: transport.id,
             iceParameters: transport.iceParameters,
-            iceCandidate: transport.iceCandidates,
+            iceCandidates: transport.iceCandidates,
             dtlsParameters: transport.dtlsParameters,
         }
     }
