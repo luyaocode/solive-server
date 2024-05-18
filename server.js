@@ -1465,11 +1465,15 @@ function handleMeet(socket) {
     });
 
     socket.on("connectProducerTransport", async (data) => {
-        const room = getMeetRoom(socket);
-        if (!room.producerTransports.has(socket.id)) return;
-        const producerTransport = room.producerTransports.get(socket.id);
-        await producerTransport.connect({ dtlsParameters: data });
-        socket.emit("producerConnected");
+        try {
+            const room = getMeetRoom(socket);
+            if (!room.producerTransports.has(socket.id)) return;
+            const producerTransport = room.producerTransports.get(socket.id);
+            await producerTransport.connect({ dtlsParameters: data });
+            socket.emit("producerConnected");
+        } catch (error) {
+            console.error(error);
+        }
     });
 
     socket.on("produce", async (data) => {
@@ -1506,11 +1510,15 @@ function handleMeet(socket) {
     });
 
     socket.on("connectConsumerTransport", async (data) => {
-        const room = getMeetRoom(socket);
-        if (!room.consumerTransports.has(socket.id)) return;
-        const consumerTransport = room.consumerTransports.get(socket.id);
-        await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
-        socket.emit("consumerConnected");
+        try {
+            const room = getMeetRoom(socket);
+            if (!room.consumerTransports.has(socket.id)) return;
+            const consumerTransport = room.consumerTransports.get(socket.id);
+            await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
+            socket.emit("consumerConnected");
+        } catch (error) {
+            console.error(error);
+        }
     });
 
     socket.on("resume", async (socketId) => {
