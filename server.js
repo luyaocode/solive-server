@@ -1378,20 +1378,6 @@ function handleDisconnect(socket) {
 }
 
 const meetRooms = new Map();
-let mediasoupRouter;
-// let producerTransport;
-// let producer;
-// let consumerTransport;
-// let consumer;
-async function initMeet() {
-    try {
-        mediasoupRouter = await createWorker();
-    } catch (error) {
-        throw error;
-    }
-}
-
-initMeet();
 
 const generateMeetRoomId = (socketId) => {
     const combinedSocketId = `${socketId}`;
@@ -1418,6 +1404,7 @@ function leaveRoom(socket, rid) {
 function handleMeet(socket) {
     socket.on("createMeetRoom", async () => {
         let rid = generateMeetRoomId(socket.id);
+        const mediasoupRouter = await createWorker();
         const room = {
             id: rid,
             router: mediasoupRouter,
@@ -1442,6 +1429,7 @@ function handleMeet(socket) {
             leaveRoom(socket, lastRoom.id);
         }
         else if (!meetRooms.has(rid)) {
+            const mediasoupRouter = await createWorker();
             const newRoom = {
                 id: rid,
                 router: mediasoupRouter,
@@ -1457,15 +1445,20 @@ function handleMeet(socket) {
     });
 
     socket.on("getRouterRtpCapabilities", () => {
-        socket.emit("routerRtpCapabilities", mediasoupRouter.rtpCapabilities);
+        const room = getMeetRoom(socket);
+        if (room?.router) {
+            socket.emit("routerRtpCapabilities", room.router.rtpCapabilities);
+        }
     });
 
     socket.on("createProducerTransport", async (msg) => {
         try {
-            const { transport, params } = await createWebrtcTransport(mediasoupRouter);
             const room = getMeetRoom(socket);
-            room.producerTransports.set(socket.id, transport);
-            socket.emit("producerTransportCreated", params);
+            if (room?.router) {
+                const { transport, params } = await createWebrtcTransport(room.router);
+                room.producerTransports.set(socket.id, transport);
+                socket.emit("producerTransportCreated", params);
+            }
         } catch (error) {
             console.error(error);
         }
@@ -1501,6 +1494,7 @@ function handleMeet(socket) {
     socket.on("createConsumerTransport", async (msg) => {
         try {
             const room = getMeetRoom(socket);
+            const mediasoupRouter = room?.router;
             const { transport, params } = await createWebrtcTransport(mediasoupRouter);
             room.consumerTransports.set(socket.id, transport);
             // const { transport, params } = await createWebrtcTransport(mediasoupRouter);
@@ -1519,7 +1513,7 @@ function handleMeet(socket) {
         socket.emit("consumerConnected");
     });
 
-    socket.on("resume", async () => {
+    socket.on("resume", async (socketId) => {
         const room = getMeetRoom(socket);
         if (room.consumers.size === 0) return;
         for (const consumerMap of room.consumers.values()) {
@@ -1533,6 +1527,7 @@ function handleMeet(socket) {
 
     socket.on("consume", async (data) => {
         const room = getMeetRoom(socket);
+        const mediasoupRouter = room.router;
         let ress = [];
         if (room.producers.size === 0) return;
         for (const sid of room.producers.keys()) {
@@ -1542,7 +1537,7 @@ function handleMeet(socket) {
             const producerSet = room.producers.get(sid);
             let consumers = [];
             for (const producer of producerSet) {
-                const res = await createConsumer(producer, data, socket, sid);
+                const res = await createConsumer(mediasoupRouter, producer, data, socket, sid);
                 consumers.push(res);
             }
             if (consumers.length > 0) {
@@ -1554,6 +1549,7 @@ function handleMeet(socket) {
 
     socket.on("consumeNewProducer", async (data) => {
         const room = getMeetRoom(socket);
+        const mediasoupRouter = room.router;
         let ress = [];
         if (room.producers.size !== 0) {
             const consumerMap = room.consumers.get(socket.id);
@@ -1576,7 +1572,7 @@ function handleMeet(socket) {
                     if (isExist) {
                         continue;
                     }
-                    const res = await createConsumer(producer, data, socket, sid);
+                    const res = await createConsumer(mediasoupRouter, producer, data, socket, sid);
                     consumers.push(res);
                 }
                 if (consumers.length > 0) {
@@ -1598,11 +1594,11 @@ function handleMeet(socket) {
     });
 
     socket.on('disconnect', () => {
-
+        // TODO:销毁房间
     });
 }
 
-const createConsumer = async (producer, rtpCapabilities, socket, peerId) => {
+const createConsumer = async (mediasoupRouter, producer, rtpCapabilities, socket, peerId) => {
     if (!producer) {
         return;
     }
