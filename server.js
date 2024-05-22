@@ -1401,6 +1401,57 @@ function leaveRoom(socket, rid) {
     socket.leave(rid);
 }
 
+function releaseResource(socket, room) {
+    let producerIdSet = new Set();
+    // 己方producer
+    if (room?.producers?.has(socket.id)) {
+        const producerSet = room.producers.get(socket.id);
+        for (const producer of producerSet) {
+            producer.close();
+            producerIdSet.add(producer.id);
+        }
+        room.producers.delete(socket.id);
+    }
+    // 己方consumer
+    if (room?.consumers?.has(socket.id)) {
+        const consumerMap = room.consumers.get(socket.id);
+        for (const producerId of consumerMap.keys()) {
+            const consumer = consumerMap.get(producerId);
+            consumer.close();
+            consumerMap.delete(producerId);
+        }
+        room.consumers.delete(socket.id);
+    }
+
+    // 其他consumer
+    if (room?.consumers && producerIdSet) {
+        for (const consumerMap of room.consumers.values()) {
+            for (const producerId of consumerMap.keys()) {
+                if (producerIdSet.has(producerId)) {
+                    const consumer = consumerMap.get(producerId);
+                    consumer.close();
+                    consumerMap.delete(producerId);
+                }
+            }
+        }
+    }
+
+    if (room?.producerTransports?.has(socket.id)) {
+        const producerTransport = room.producerTransports.get(socket.id);
+        producerTransport.close();
+        room.producerTransports.delete(socket.id);
+    }
+    if (room?.consumerTransports?.has(socket.id)) {
+        const consumerTransport = room.consumerTransports.get(socket.id);
+        consumerTransport.close();
+        room.consumerTransports.delete(socket.id);
+    }
+    // room.producers?.delete(socket.id);
+    // room.consumers?.delete(socket.id);
+    // room.producerTransports?.delete(socket.id);
+    // room.consumerTransports?.delete(socket.id);
+}
+
 function handleMeet(socket) {
     socket.on("createMeetRoom", async () => {
         let rid = generateMeetRoomId(socket.id);
@@ -1441,7 +1492,7 @@ function handleMeet(socket) {
             meetRooms.set(rid, newRoom);
         }
         await socket.join(rid);
-        socket.emit("meetRoomEntered");
+        socket.emit("meetRoomEntered", rid);
     });
 
     socket.on("getRouterRtpCapabilities", () => {
@@ -1522,15 +1573,19 @@ function handleMeet(socket) {
     });
 
     socket.on("resume", async (socketId) => {
-        const room = getMeetRoom(socket);
-        if (room.consumers.size === 0) return;
-        for (const consumerMap of room.consumers.values()) {
-            if (consumerMap.size === 0) continue;
-            for (const consumer of consumerMap.values()) {
-                await consumer.resume();
+        try {
+            const room = getMeetRoom(socket);
+            if (room.consumers.size === 0) return;
+            for (const consumerMap of room.consumers.values()) {
+                if (consumerMap.size === 0) continue;
+                for (const consumer of consumerMap.values()) {
+                    await consumer.resume();
+                }
             }
+            socket.emit("resumed");
+        } catch (error) {
+            console.error(error);
         }
-        socket.emit("resumed");
     });
 
     socket.on("consume", async (data) => {
@@ -1557,6 +1612,7 @@ function handleMeet(socket) {
 
     socket.on("consumeNewProducer", async (data) => {
         const room = getMeetRoom(socket);
+        if (!room) return;
         const mediasoupRouter = room.router;
         let ress = [];
         if (room.producers.size !== 0) {
@@ -1591,14 +1647,18 @@ function handleMeet(socket) {
         socket.emit("newProducerConsumed", ress);
     });
 
+    socket.on("leaveMeetRoom", (sid) => {
+        const currRoom = getMeetRoom(socket);
+        if (currRoom) {
+            releaseResource(socket, currRoom);
+            io.to(currRoom.id).emit('meetRoomLeft', sid);
+            leaveRoom(socket, currRoom.id);
+        }
+    });
+
     socket.on('disconnecting', () => {
         const room = getMeetRoom(socket);
-        if (room) {
-            room.producerTransports?.delete(socket.id);
-            room.consumerTransports?.delete(socket.id);
-            room.producers?.delete(socket.id);
-            room.consumers?.delete(socket.id);
-        }
+        releaseResource(socket, room);
     });
 
     socket.on('disconnect', () => {
