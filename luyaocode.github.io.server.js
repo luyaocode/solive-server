@@ -3,9 +3,6 @@ import bodyParser from 'body-parser';
 
 import { Sequelize, DataTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
-import http from 'http';
-import https from 'https';
-import fs from 'fs';
 
 // 创建 Sequelize 实例，使用 SQLite 连接数据库
 
@@ -155,20 +152,6 @@ rundb();
 
 const app = express();
 const port = 5001;
-let ssl_crt, ssl_key;
-let server, options;
-if (process.env.NODE_ENV === 'prod') {
-    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.pem';
-    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.key';
-    options = {
-        key: fs.readFileSync(ssl_key),
-        cert: fs.readFileSync(ssl_crt)
-    }
-    server = https.createServer(options, app);
-}
-else if (process.env.NODE_ENV === 'dev') {
-    server = http.createServer(app);
-}
 
 // 使用 body-parser 中间件来解析请求体
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -254,6 +237,6 @@ app.post('/delblog', async (req, res) => {
 });
 
 // 启动 Express 服务器
-server.listen(port, () => {
+app.listen(port, () => {
     console.log(`Child process is listening on port: ${port}`);
 });
