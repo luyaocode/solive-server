@@ -3,6 +3,10 @@ import bodyParser from 'body-parser';
 
 import { Sequelize, DataTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
+import http from 'http';
+import https from 'https';
+import fs from 'fs';
+
 // 创建 Sequelize 实例，使用 SQLite 连接数据库
 
 const initdb = () => {
