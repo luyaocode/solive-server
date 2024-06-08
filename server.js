@@ -336,6 +336,15 @@ import path from 'path';
 
 const app = express();
 
+import { fork } from 'child_process';
+// 创建子进程来处理 POST 请求
+const childProcess = fork('./luyaocode.github.io.server.js');
+
+// 当收到消息时，处理来自子进程的响应
+childProcess.on('message', (message) => {
+    // console.log('Received message from child process:', message);
+});
+
 let ssl_crt, ssl_key;
 let server, options;
 if (process.env.NODE_ENV === 'prod') {
