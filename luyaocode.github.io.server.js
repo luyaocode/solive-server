@@ -160,8 +160,8 @@ const port = 5001;
 let ssl_crt, ssl_key;
 let server, options;
 if (process.env.NODE_ENV === 'prod') {
-    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/blog.chaosgomoku.fun.pem';
-    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/blog.chaosgomoku.fun.key';
+    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.key';
     options = {
         key: fs.readFileSync(ssl_key),
         cert: fs.readFileSync(ssl_crt)
