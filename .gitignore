@@ -38,3 +38,5 @@ uploads/*
 # 不忽略文件夹本身
 !temp
 !uploads
+
+deploy.sh

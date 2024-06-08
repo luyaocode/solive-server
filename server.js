@@ -1771,6 +1771,9 @@ const uploads_maxFolderSizeBytes = 1024 * 1024 * 1024; // 1GB
 const uploads_interval = 3600000 * 24; // 每天检查一次（单位：毫秒）
 
 function getFolderSize(folderPath) {
+    if (!fs.existsSync(folderPath)) {
+        return;
+    }
     let totalSize = 0;
     const files = fs.readdirSync(folderPath);
 
