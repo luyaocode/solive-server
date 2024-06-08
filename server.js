@@ -1786,6 +1786,10 @@ function getFolderSize(folderPath) {
 }
 
 function clearFolder(folderPath) {
+    if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+        return;
+    }
     const files = fs.readdirSync(folderPath);
 
     files.forEach(file => {
