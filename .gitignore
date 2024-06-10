@@ -40,3 +40,4 @@ uploads/*
 !uploads
 
 deploy.sh
+*.db

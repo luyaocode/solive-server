@@ -11,31 +11,40 @@ const initdb = () => {
         dialect: 'sqlite',
         storage: 'luyaocode.github.io.db' // 数据库文件路径
     });
-    const Blog = sequelize.define('Blog', {
-        id: {
-            type: DataTypes.UUID,
-            defaultValue: uuidv4,
-            primaryKey: true,
+    const Blog = sequelize.define('Blog',
+        {
+            id: {
+                type: DataTypes.UUID,
+                defaultValue: uuidv4,
+                primaryKey: true,
+            },
+            title: {
+                type: DataTypes.STRING,
+                allowNull: false
+            },
+            author: {
+                type: DataTypes.STRING,
+                allowNull:false
+            },
+            content: {
+                type: DataTypes.TEXT,
+                allowNull: false
+            },
+            time: {
+                type: DataTypes.DATE,
+                defaultValue:new Date(),
+                allowNull: false
+            },
         },
-        title: {
-            type: DataTypes.STRING,
-            allowNull: false
-        },
-        author: {
-            type: DataTypes.STRING,
-            allowNull:false
-        },
-        content: {
-            type: DataTypes.TEXT,
-            allowNull: false
-        },
-        time: {
-            type: DataTypes.DATE,
-            defaultValue:new Date(),
-            allowNull: false
-        },
-    }, {
-        tableName: 'blog'
+        {
+            tableName: 'blog',
+            timestamps: true, // 启用时间戳
+            paranoid: true, // 启用软删除
+        }
+    );
+    // 钩子：在销毁之前更新 `updatedAt` 字段
+    Blog.beforeDestroy(async (instance, options) => {
+        await instance.update({ updatedAt: new Date() }, { silent: true });
     });
     return { sequelize, Blog }
 }
@@ -135,14 +144,34 @@ const getBlogById = async (id) => {
 async function deleteBlogById(id) {
     const { sequelize, Blog } = initdb();
     try {
-      const deletedRows = await Blog.destroy({
-        where: {
-          id: id
-        }
-      });
-      console.log(`Deleted ${deletedRows} rows`);
+        const deletedRows = await Blog.destroy({
+            where: {
+            id: id
+            }
+        });
+        console.log(`Deleted ${deletedRows} rows`);
     } catch (error) {
-      console.error('Error deleting blog:', error);
+        console.error('Error deleting blog:', error);
+    } finally {
+        await sequelize.close();
+    }
+}
+
+const getBlogsLatestUpdateTime = async () => {
+    const { sequelize, Blog } = initdb();
+    try {
+        const latestUpdate = await Blog.findOne({
+            order: [['updatedAt', 'DESC']],
+            attributes: ['updatedAt']
+        });
+        if (latestUpdate) {
+            console.log(`Latest update: ${latestUpdate.updatedAt}`);
+            return latestUpdate.updatedAt;
+        } else {
+            return null;
+        }
+    } catch (error) {
+        console.error('Error deleting blog:', error);
     } finally {
         await sequelize.close();
     }
@@ -176,7 +205,7 @@ else if (process.env.NODE_ENV === 'dev') {
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-
+// 校验暗号
 const check = (pwd) => {
     if (pwd.length === 0) {
         return false;
@@ -212,6 +241,17 @@ app.post('/publish', async (req, res) => {
     }
     catch(error) {
         console.log(error);
+    }
+});
+
+app.get('/blogs/get-latest-update-time', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    try {
+        const latestUpdateTime = await getBlogsLatestUpdateTime();
+        res.status(200).send(latestUpdateTime);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: 'Internal Server Error' });
     }
 });
 
