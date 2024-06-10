@@ -1666,8 +1666,12 @@ function handleMeet(socket) {
     });
 
     socket.on('disconnecting', () => {
-        const room = getMeetRoom(socket);
-        releaseResource(socket, room);
+        const currRoom = getMeetRoom(socket);
+        if (currRoom) {
+            releaseResource(socket, currRoom);
+            io.to(currRoom.id).emit('meetRoomLeft', socket.id);
+            leaveRoom(socket, currRoom.id);
+        }
     });
 
     socket.on('disconnect', () => {
