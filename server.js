@@ -468,7 +468,7 @@ function negotiationDeviceType(socket, anotherSocket) {
     let deviceType = users[socket.id].deviceType;
     let boardWidth = users[socket.id].boardWidth;
     let boardHeight = users[socket.id].boardHeight;
-    anotherDeviceType = users[anotherSocket.id].deviceType;
+    let anotherDeviceType = users[anotherSocket.id].deviceType;
     if (deviceType < anotherDeviceType) {
         roomDType = deviceType;
         bWidth = boardWidth;
