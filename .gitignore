@@ -34,6 +34,7 @@ temp/
 temp/*
 uploads/
 uploads/*
+log/*
 
 # 不忽略文件夹本身
 !temp

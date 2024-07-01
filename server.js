@@ -1,3 +1,8 @@
+// 日志模块
+import { createLogger } from './logger.js';
+const logger = await createLogger('server');
+logger.info('Server started');
+
 // const { Table_System, Table_Client_Ips, Table_Game_Info, Table_Step_Info,
 //     Table_User_Info
 // } = require('./ConstDefine.js');
@@ -135,7 +140,7 @@ function getHistoryPeekUsers() {
                     timestamp = row.timestamp;
                     resolve({ peek, timestamp });
                 } else {
-                    console.log('没有找到历史最高在线人数记录');
+                    logger.info('没有找到历史最高在线人数记录');
                     resolve({ historyPeekUsers: 0, timestamp: null });
                 }
             });
@@ -148,7 +153,7 @@ function updateHistoryPeekUsers(count) {
     db.serialize(() => {
         db.run("INSERT INTO system (history_peek_users, timestamp) VALUES (?, ?)", [count, timestamp], function (err) {
             if (err) {
-                return console.error(err.message);
+                return logger.error(err.message);
             }
         });
     });
@@ -158,12 +163,12 @@ function updateHistoryPeekUsers(count) {
 function sendTableData(tableName, socket) {
     db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
         if (err) {
-            console.error('Error checking for table existence:', err);
+            logger.error('Error checking for table existence:', err);
         }
     });
     db.all(`SELECT * FROM ${tableName}`, (err, tableData) => {
         if (err) {
-            console.error('Error querying table: ', err);
+            logger.error('Error querying table: ', err);
             return;
         }
         socket.emit('tableData', { tableName, tableData });
@@ -199,7 +204,7 @@ function insertStepInfo(gameId, socketId, x, y, currItem, nextItem) {
     const currentTime = getBeijingTime();
     db.run(insertQuery, [gameId, socketId, x, y, currItem, nextItem, currentTime], (err) => {
         if (err) {
-            console.error('Error inserting data:', err);
+            logger.error('Error inserting data:', err);
         }
     });
 }
@@ -210,7 +215,7 @@ function insertGameInfo(roomId, socket1, socket2, dType, scale) {
     const createTime = getBeijingTime();
     db.run(insertQuery, [roomId, socket1, socket2, dType, scale, createTime], (err) => {
         if (err) {
-            console.error('Error inserting data:', err);
+            logger.error('Error inserting data:', err);
         }
     });
 }
@@ -222,7 +227,7 @@ function insertIps(clientIp, currentTime, location) {
     // }
     db.run("INSERT INTO client_ips (ipAddress, connectionTime,location) VALUES (?, ?,?)", [clientIp, currentTime, location], (err) => {
         if (err) {
-            console.error('Error inserting IP address into database:', err);
+            logger.error('Error inserting IP address into database:', err);
         }
     });
 }
@@ -231,15 +236,15 @@ function insertIps(clientIp, currentTime, location) {
 function printTable(tableName) {
     db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName], (err, row) => {
         if (err) {
-            console.error('Error checking for table existence:', err);
+            logger.error('Error checking for table existence:', err);
         }
     });
     db.all(`SELECT * FROM ${tableName}`, (err, rows) => {
         if (err) {
-            console.error('Error retrieving data from database:', err);
+            logger.error('Error retrieving data from database:', err);
         } else {
             rows.forEach((row) => {
-                console.log(row);
+                logger.info(row);
             });
         }
     });
@@ -284,7 +289,7 @@ function deleteRecordByCondition(tableName, condition) {
             return;
         }
         else {
-            console.log(`${tableName} 删除记录 ${condition}`)
+            logger.info(`${tableName} 删除记录 ${condition}`)
         }
     });
 }
@@ -293,7 +298,7 @@ function deleteRecordByCondition(tableName, condition) {
 function dropTable(tableName) {
     db.run(`DROP TABLE IF EXISTS ${tableName}`, (err) => {
         if (err) {
-            console.error('Error dropping table:', err);
+            logger.error('Error dropping table:', err);
         }
     });
 }
@@ -342,7 +347,7 @@ const childProcess = fork('./luyaocode.github.io.server.js');
 
 // 当收到消息时，处理来自子进程的响应
 childProcess.on('message', (message) => {
-    // console.log('Received message from child process:', message);
+    // logger.info('Received message from child process:', message);
 });
 
 let ssl_crt, ssl_key;
@@ -507,7 +512,7 @@ function restartGame(socket) {
     const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
         + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
     io.to(roomId).emit('message', startMsg);
-    console.log(startMsg);
+    logger.info(startMsg);
     // 持久化
     insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
 }
@@ -879,14 +884,14 @@ function handleFileUpload(socket) {
         const imageDataBuffer = Buffer.from(base64Data, 'base64');
         fs.writeFile(filePath, imageDataBuffer, err => {
             if (err) {
-                console.error('Error saving frame:', err);
+                logger.error('Error saving frame:', err);
             } else {
-                console.log('Frame saved:', fileName);
+                logger.info('Frame saved:', fileName);
                 fs.copyFile(filePath, tempFilePath, err => {
                     if (err) {
-                        console.error('Error saving frame to temp:', err);
+                        logger.error('Error saving frame to temp:', err);
                     } else {
-                        console.log('Frame saved to temp:', fileName_with_timestamp);
+                        logger.info('Frame saved to temp:', fileName_with_timestamp);
                     }
                 });
             }
@@ -916,7 +921,7 @@ async function getLocationByIP(ip, api = 'https://ipinfo.io',) {
         const { country, region, city } = response.data;
         return { country, region, city };
     } catch (error) {
-        console.error('Error retrieving location information:', error.message);
+        logger.error('Error retrieving location information:', error.message);
         return {
             country: undefined,
             region: undefined,
@@ -1028,7 +1033,7 @@ function handleGame(socket) {
                 users[socket.id].nickName + '] 执 ' + user2PieceType
                 + '，[' + users[anotherSocket.id].nickName + '] 执 ' + user1PieceType;
             io.to(roomId).emit('message', startMsg);
-            console.log(startMsg);
+            logger.info(startMsg);
 
             // 持久化
             insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
@@ -1080,7 +1085,7 @@ function handleGame(socket) {
             const startMsg = '游戏开始：（' + roomId + ',' + roomDType + ',' + bWidth + ' x ' + bHeight + '）[' + users[socket.id].nickName + '] 执 ' + pieces[0]
                 + '，[' + users[anotherSocket.id].nickName + '] 执 ' + pieces[1];
             io.to(roomId).emit('message', startMsg);
-            console.log(startMsg);
+            logger.info(startMsg);
             // 持久化
             insertGameInfo(roomId, socket.id, anotherSocket.id, roomDType, bWidth + 'x' + bHeight);
         }
@@ -1114,14 +1119,14 @@ function handleGame(socket) {
             return;
         }
         anotherSocket.emit('step', { i, j });
-        console.log(users[socket.id].nickName + ': ' + i + ',' + j + ',' + currItem + ',' + nextItem);
+        logger.info(users[socket.id].nickName + ': ' + i + ',' + j + ',' + currItem + ',' + nextItem);
         // 记录对局步骤
         searchGameId(users[socket.id].roomId)
             .then((gameId) => {
                 insertStepInfo(gameId, socket.id, i, j, currItem, nextItem);
             })
             .catch((error) => {
-                console.error("Error retrieving gameId:", error);
+                logger.error("Error retrieving gameId:", error);
             });
     });
 
@@ -1237,7 +1242,7 @@ async function handleStart(socket) {
             io.emit('historyPeekUsers', historyPeekUsers);
         })
         .catch(err => {
-            console.error('查询失败:', err);
+            logger.error('查询失败:', err);
         });
     // 发送公告板消息
     socket.emit('publicMsgs', publicMsgs);
@@ -1245,7 +1250,7 @@ async function handleStart(socket) {
 
     // 欢迎语
     socket.emit('connected');
-    console.log(`Client connected: ${socket.id}`);
+    logger.info(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
     connectedSockets[socket.id] = socket;
 
@@ -1283,7 +1288,7 @@ function handleLogin(socket) {
     socket.on('verifyToken', (token) => {
         const result = verifyToken(token, secretKey);
         if (!result.isValid) {
-            console.error('Token is invalid. Error:', result.error);
+            logger.error('Token is invalid. Error:', result.error);
         }
         socket.emit('token_valid', result.isValid);
     });
@@ -1293,7 +1298,7 @@ function handleLogin(socket) {
             const condition = `UserName='${data.account}'`;
             getAllRecordsByCondition(Table_User_Info, condition).then(res => {
                 if (res.length > 0) {
-                    console.log(`用户账号${data.account}已存在`);
+                    logger.info(`用户账号${data.account}已存在`);
                     socket.emit('account_existed', data.account);
                 }
                 else if (res.length === 0) {
@@ -1306,11 +1311,11 @@ function handleLogin(socket) {
                         };
                         insertRecord(Table_User_Info, recordToInsert)
                             .then((lastID) => {
-                                console.log(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
+                                logger.info(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
                                 socket.emit("signup_ok", (data));
                             })
                             .catch((error) => {
-                                console.error(`注册${data.account}失败:`, error);
+                                logger.error(`注册${data.account}失败:`, error);
                                 socket.emit("signup_failed", (data));
                             });
                     });
@@ -1325,11 +1330,11 @@ function handleLogin(socket) {
                     };
                     insertRecord(Table_User_Info, recordToInsert)
                         .then((lastID) => {
-                            console.log(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
+                            logger.info(`成功注册${data.account}，插入的记录 ID 为: ${lastID}`);
                             socket.emit("signup_ok", (data));
                         })
                         .catch((error) => {
-                            console.error(`注册${data.account}失败:`, error);
+                            logger.error(`注册${data.account}失败:`, error);
                             socket.emit("signup_failed", (data));
                         });
                 });
@@ -1376,7 +1381,7 @@ function handleDisconnect(socket) {
             const nickName = users[socket.id].nickName;
             io.to(roomId).emit('playerDisconnected', nickName + '断开连接');
         }
-        console.log(`Client disconnected: ${socket.id}`);
+        logger.info(`Client disconnected: ${socket.id}`);
         delete connectedSockets[socket.id];
         delete users[socket.id];
         matchingArray = matchingArray.filter(item => item !== socket.id);
@@ -1520,7 +1525,7 @@ function handleMeet(socket) {
                 socket.emit("producerTransportCreated", params);
             }
         } catch (error) {
-            console.error(error);
+            logger.error(error);
         }
     });
 
@@ -1532,7 +1537,7 @@ function handleMeet(socket) {
             await producerTransport.connect({ dtlsParameters: data });
             socket.emit("producerConnected");
         } catch (error) {
-            console.error(error);
+            logger.error(error);
         }
     });
 
@@ -1565,7 +1570,7 @@ function handleMeet(socket) {
             // consumerTransport = transport;
             socket.emit("consumerTransportCreated", params);
         } catch (error) {
-            console.error(error);
+            logger.error(error);
         }
     });
 
@@ -1577,7 +1582,7 @@ function handleMeet(socket) {
             await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
             socket.emit("consumerConnected");
         } catch (error) {
-            console.error(error);
+            logger.error(error);
         }
     });
 
@@ -1593,7 +1598,7 @@ function handleMeet(socket) {
             }
             socket.emit("resumed");
         } catch (error) {
-            console.error(error);
+            logger.error(error);
         }
     });
 
@@ -1687,7 +1692,7 @@ const createConsumer = async (mediasoupRouter, producer, rtpCapabilities, socket
         producerId: producer.id,
         rtpCapabilities,
     })) {
-        console.error("can't consume");
+        logger.error("can't consume");
         return;
     }
     let consumer;
@@ -1710,7 +1715,7 @@ const createConsumer = async (mediasoupRouter, producer, rtpCapabilities, socket
         }
         consumerMap.set(producer.id, consumer);
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         return;
     }
     return {
@@ -1754,14 +1759,14 @@ io.on('connection', socket => {
 });
 
 
-server.listen(5000, () => console.log('server is listening port 5000'));
+server.listen(5000, () => logger.info('server is listening port 5000'));
 
 // 定时检查文件夹大小
 function scheduledCheckFolder(folderPath, maxSize, interval) {
     setInterval(() => {
         const folderSize = getFolderSize(folderPath);
         if (folderSize > maxSize) {
-            console.log(`Folder size exceeds ${maxSize} bytes. Clearing folder...`);
+            logger.info(`Folder size exceeds ${maxSize} bytes. Clearing folder...`);
             clearFolder(folderPath);
         }
     }, interval);
@@ -1804,11 +1809,11 @@ function clearFolder(folderPath) {
         fs.unlinkSync(filePath);
     });
 
-    console.log(`Folder ${folderPath} cleared.`);
+    logger.info(`Folder ${folderPath} cleared.`);
 }
 
 clearFolder(temp_folderPath);
 clearFolder(uploads_folderPath);
 scheduledCheckFolder(temp_folderPath, temp_maxFolderSizeBytes, temp_interval);
 scheduledCheckFolder(uploads_folderPath, uploads_maxFolderSizeBytes, uploads_interval);
-console.log('定时清理文件任务已开启...');
+logger.info('定时清理文件任务已开启...');

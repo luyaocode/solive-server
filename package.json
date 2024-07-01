@@ -19,7 +19,8 @@
     "sqlite3": "^5.1.7",
     "tree-model": "^1.0.7",
     "typescript": "^5.4.5",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "winston": "^3.13.0"
   },
   "scripts": {
     "start": "cross-env NODE_ENV=prod node server.js",

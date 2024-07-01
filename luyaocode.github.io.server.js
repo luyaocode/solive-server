@@ -4,6 +4,10 @@ import bodyParser from 'body-parser';
 import { Sequelize, DataTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
 
+// 日志模块
+import { createLogger } from './logger.js';
+const logger = await createLogger('luyaocode.github.io.server');
+
 // 创建 Sequelize 实例，使用 SQLite 连接数据库
 
 const initdb = () => {
@@ -55,11 +59,11 @@ const rundb = async () => {
         // await sequelize.sync({ force: true }); // 清空数据库
         await sequelize.sync();
 
-        console.log("Database & table synced!");
+        logger.info("Database & table synced!");
         const posts = await Blog.findAll();
-        console.log(`All posts: ${JSON.stringify(posts, null, 2)}`);
+        logger.info(`All posts: ${JSON.stringify(posts, null, 2)}`);
     } catch (error) {
-        console.error('Error occurred:', error);
+        logger.error('Error occurred:', error);
     } finally {
         await sequelize.close();
     }
@@ -76,9 +80,9 @@ const postBlog = async (uuid,title, content) => {
             content: content,
             time: new Date()
         });
-        console.log(`New post created: ${JSON.stringify(newPost.toJSON(), null, 2)}`);
+        logger.info(`New post created: ${JSON.stringify(newPost.toJSON(), null, 2)}`);
     } catch (error) {
-        console.error('Error occurred:', error);
+        logger.error('Error occurred:', error);
     } finally {
         await sequelize.close();
     }
@@ -92,7 +96,7 @@ const getBlogs = async () => {
             order: [['time', 'DESC']] // 按照时间字段倒序排序
         });
         const res = blogs.map(blog => {
-            console.log(`Title: ${blog.title}, Author: ${blog.author}, Time: ${blog.time}`);
+            logger.info(`Title: ${blog.title}, Author: ${blog.author}, Time: ${blog.time}`);
             return {
                 id: blog.id,
                 title: blog.title,
@@ -102,7 +106,7 @@ const getBlogs = async () => {
         });
         return res;
     } catch (error) {
-        console.error('Error occurred:', error);
+        logger.error('Error occurred:', error);
     } finally {
         await sequelize.close();
     }
@@ -127,14 +131,14 @@ const getBlogById = async (id) => {
                 time: blog.time,
             };
 
-            console.log(`Found blog - Title: ${result.title}, Author: ${result.author}, Content: ${result.content},,Time: ${result.time}`);
+            logger.info(`Found blog - Title: ${result.title}, Author: ${result.author}, Content: ${result.content},,Time: ${result.time}`);
             return result;
         } else {
-            console.log(`No blog found with id: ${id}`);
+            logger.info(`No blog found with id: ${id}`);
             return null;
         }
     } catch (error) {
-        console.error('Error finding blog by id:', error);
+        logger.error('Error finding blog by id:', error);
     } finally {
         await sequelize.close();
     }
@@ -149,9 +153,9 @@ async function deleteBlogById(id) {
             id: id
             }
         });
-        console.log(`Deleted ${deletedRows} rows`);
+        logger.info(`Deleted ${deletedRows} rows`);
     } catch (error) {
-        console.error('Error deleting blog:', error);
+        logger.error('Error deleting blog:', error);
     } finally {
         await sequelize.close();
     }
@@ -165,13 +169,13 @@ const getBlogsLatestUpdateTime = async () => {
             attributes: ['updatedAt']
         });
         if (latestUpdate) {
-            console.log(`Latest update: ${latestUpdate.updatedAt}`);
+            logger.info(`Latest update: ${latestUpdate.updatedAt}`);
             return latestUpdate.updatedAt;
         } else {
             return null;
         }
     } catch (error) {
-        console.error('Error deleting blog:', error);
+        logger.error('Error deleting blog:', error);
     } finally {
         await sequelize.close();
     }
@@ -240,7 +244,7 @@ app.post('/publish', async (req, res) => {
         res.status(200).send({ data:"博客上传成功！",code:0});
     }
     catch(error) {
-        console.log(error);
+        logger.info(error);
     }
 });
 
@@ -250,7 +254,7 @@ app.get('/blogs/get-latest-update-time', async (req, res) => {
         const latestUpdateTime = await getBlogsLatestUpdateTime();
         res.status(200).send(latestUpdateTime);
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         res.status(500).send({ error: 'Internal Server Error' });
     }
 });
@@ -262,7 +266,7 @@ app.get('/blogs', async (req, res) => {
         res.status(200).send(blogs);
     }
     catch(error) {
-        console.log(error);
+        logger.info(error);
     }
 });
 
@@ -274,7 +278,7 @@ app.get('/blog', async (req, res) => {
         res.status(200).send(blog);
     }
     catch(error) {
-        console.log(error);
+        logger.info(error);
     }
 });
 
@@ -291,11 +295,11 @@ app.post('/delblog', async (req, res) => {
         res.status(200).send({data: "博客删除成功",code:0});
     }
     catch(error) {
-        console.log(error);
+        logger.info(error);
     }
 });
 
 // 启动 Express 服务器
 server.listen(port, () => {
-    console.log(`Child process is listening on port: ${port}`);
+    logger.info(`Child process is listening on port: ${port}`);
 });
