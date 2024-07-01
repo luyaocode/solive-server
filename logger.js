@@ -1,7 +1,12 @@
 // 日志模块
 import winston from 'winston';
+import fs from 'fs';
+
 const LOG_DIRECTORY = './log';
 export async function createLogger(processName = 'default') {
+    if (!fs.existsSync(LOG_DIRECTORY)) {
+        fs.mkdirSync(LOG_DIRECTORY, { recursive: true });
+    }
     const errorTransport = new winston.transports.File({
         filename: `${LOG_DIRECTORY}/error_${processName}.log`,
         level: 'error'
