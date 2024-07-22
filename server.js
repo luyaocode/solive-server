@@ -1467,8 +1467,15 @@ function releaseResource(socket, room) {
 }
 
 function handleMeet(socket) {
-    socket.on("createMeetRoom", async () => {
-        let rid = generateMeetRoomId(socket.id);
+    socket.on("createMeetRoom", async (data) => {
+        const { isLive } = data;
+        let rid;
+        if (isLive) {
+            rid = generateLiveRoomId(socket.id);
+        }
+        else {
+            rid = generateMeetRoomId(socket.id);
+        }
         const mediasoupRouter = await createWorker();
         const room = {
             id: rid,
@@ -1488,25 +1495,38 @@ function handleMeet(socket) {
     });
 
     socket.on("enterMeetRoom", async (data) => {
-        let rid = data;
-        const lastRoom = getMeetRoom(socket);
-        if (lastRoom) {
-            leaveRoom(socket, lastRoom.id);
+        const { isLive } = data;
+        if (isLive) { // 直播
+            let rid = data.id;
+            if (!meetRooms.has(rid)) {
+                socket.emit("liveRoomNotExist", rid);
+            }
+            else {
+                await socket.join(rid);
+                socket.emit("meetRoomEntered", rid);
+            }
         }
-        else if (!meetRooms.has(rid)) {
-            const mediasoupRouter = await createWorker();
-            const newRoom = {
-                id: rid,
-                router: mediasoupRouter,
-                producerTransports: new Map(),
-                consumerTransports: new Map(),
-                producers: new Map(),
-                consumers: new Map()
-            };
-            meetRooms.set(rid, newRoom);
+        else { // 会议
+            let rid = data;
+            const lastRoom = getMeetRoom(socket);
+            if (lastRoom) {
+                leaveRoom(socket, lastRoom.id);
+            }
+            else if (!meetRooms.has(rid)) {
+                const mediasoupRouter = await createWorker();
+                const newRoom = {
+                    id: rid,
+                    router: mediasoupRouter,
+                    producerTransports: new Map(),
+                    consumerTransports: new Map(),
+                    producers: new Map(),
+                    consumers: new Map()
+                };
+                meetRooms.set(rid, newRoom);
+            }
+            await socket.join(rid);
+            socket.emit("meetRoomEntered", rid);
         }
-        await socket.join(rid);
-        socket.emit("meetRoomEntered", rid);
     });
 
     socket.on("getRouterRtpCapabilities", () => {
