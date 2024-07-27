@@ -1391,7 +1391,7 @@ function handleDisconnect(socket) {
     });
 }
 
-const meetRooms = new Map();
+const meetRooms = new Map();// 会议12位号码，直播8位号码
 
 const generateMeetRoomId = (socketId) => {
     const combinedSocketId = `${socketId}`;
@@ -1466,6 +1466,10 @@ function releaseResource(socket, room) {
     // room.consumerTransports?.delete(socket.id);
 }
 
+function isSfuLiveRoom(rid) {
+    return rid?.length === 8;
+}
+
 function handleMeet(socket) {
     socket.on("createMeetRoom", async (data) => {
         const { isLive } = data;
@@ -1478,7 +1482,8 @@ function handleMeet(socket) {
         }
         const mediasoupRouter = await createWorker();
         const room = {
-            id: rid,
+            creator:socket.id, // 创建者
+            id: rid, // 房间号
             router: mediasoupRouter,
             producerTransports: new Map(), // Map to store transports for each peer.
             // { socket.id: ProducerTransport }
@@ -1498,6 +1503,10 @@ function handleMeet(socket) {
         const { isLive } = data;
         if (isLive) { // 直播
             let rid = data.id;
+            const lastRoom = getMeetRoom(socket);
+            if (lastRoom) {
+                leaveRoom(socket, lastRoom.id);
+            }
             if (!meetRooms.has(rid)) {
                 socket.emit("liveRoomNotExist", rid);
             }
@@ -1508,6 +1517,10 @@ function handleMeet(socket) {
         }
         else { // 会议
             let rid = data;
+            if (rid.length === 8) { // 是直播
+                socket.emit("meetRoomNotExist", rid);
+                return;
+            }
             const lastRoom = getMeetRoom(socket);
             if (lastRoom) {
                 leaveRoom(socket, lastRoom.id);
@@ -1681,6 +1694,14 @@ function handleMeet(socket) {
         socket.emit("newProducerConsumed", ress);
     });
 
+    socket.on("pushSfuLiveMsgs", (data) => {
+        const otherRooms = getSocketRoomsExcludeSelf(socket);
+        if (otherRooms.length > 0) {
+            const lid = otherRooms[0];
+            socket.to(lid).emit("getLiveMsgs", data);
+        }
+    });
+
     socket.on("leaveMeetRoom", (sid) => {
         const currRoom = getMeetRoom(socket);
         if (currRoom) {
@@ -1696,6 +1717,12 @@ function handleMeet(socket) {
             releaseResource(socket, currRoom);
             io.to(currRoom.id).emit('meetRoomLeft', socket.id);
             leaveRoom(socket, currRoom.id);
+            //直播
+            if (isSfuLiveRoom(currRoom.id)) {
+                if (currRoom.creator === socket.id) {
+                    meetRooms.delete(currRoom.id);
+                }
+            }
         }
     });
 
