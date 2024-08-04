@@ -1472,7 +1472,10 @@ function isSfuLiveRoom(rid) {
 
 function handleMeet(socket) {
     socket.on("createMeetRoom", async (data) => {
-        const { isLive } = data;
+        let isLive;
+        if (data) {
+            isLive = data.isLive;
+        }
         let rid;
         if (isLive) {
             rid = generateLiveRoomId(socket.id);
