@@ -1,3 +1,5 @@
+import { isJSON } from './plugins.js'
+import JSON5 from 'json5';
 // 日志模块
 import { createLogger } from './logger.js';
 const logger = await createLogger('server');
@@ -23,6 +25,7 @@ import {
     createWorker,
     createWebrtcTransport,
 } from './dist/worker.js';
+
 // const createWorker = require('./dist/worker.js');
 function getformatNowTime() {
     return lib.getformatCurrBjTime();
@@ -1503,6 +1506,10 @@ function handleMeet(socket) {
     });
 
     socket.on("enterMeetRoom", async (data) => {
+        const isJson = isJSON(data);
+        if (isJson) {
+            data = JSON.parse(data);
+        }
         const { isLive } = data;
         if (isLive) { // 直播
             let rid = data.id;
@@ -1545,20 +1552,43 @@ function handleMeet(socket) {
         }
     });
 
-    socket.on("getRouterRtpCapabilities", () => {
+    socket.on("getRouterRtpCapabilities", (data) => {
+        const isJson = isJSON(data);
+        let from;
+        if (isJson) {
+            data = JSON.parse(data);
+            from = data.from;
+        }
         const room = getMeetRoom(socket);
         if (room?.router) {
-            socket.emit("routerRtpCapabilities", room.router.rtpCapabilities);
+            const rtpcapas = room.router.rtpCapabilities;
+            if (from === 'qt_client') {
+                socket.emit("routerRtpCapabilities", JSON.stringify(rtpcapas));
+            }
+            else {
+                socket.emit("routerRtpCapabilities", rtpcapas);
+            }
         }
     });
 
-    socket.on("createProducerTransport", async (msg) => {
+    socket.on("createProducerTransport", async (data) => {
+        const isJson = isJSON(data);
+        let from;
+        if (isJson) {
+            data = JSON5.parse(data);
+            from = data.from;
+        }
         try {
             const room = getMeetRoom(socket);
             if (room?.router) {
                 const { transport, params } = await createWebrtcTransport(room.router);
                 room.producerTransports.set(socket.id, transport);
-                socket.emit("producerTransportCreated", params);
+                if (from === 'qt_client') {
+                    socket.emit("producerTransportCreated", JSON.stringify(params));
+                }
+                else {
+                    socket.emit("producerTransportCreated", params);
+                }
             }
         } catch (error) {
             logger.error(error);
@@ -1596,7 +1626,13 @@ function handleMeet(socket) {
         socket.broadcast.emit('newProducer');
     });
 
-    socket.on("createConsumerTransport", async (msg) => {
+    socket.on("createConsumerTransport", async (data) => {
+        const isJson = isJSON(data);
+        let from;
+        if (isJson) {
+            data = JSON.parse(data);
+            from = data.from;
+        }
         try {
             const room = getMeetRoom(socket);
             const mediasoupRouter = room?.router;
@@ -1604,18 +1640,35 @@ function handleMeet(socket) {
             room.consumerTransports.set(socket.id, transport);
             // const { transport, params } = await createWebrtcTransport(mediasoupRouter);
             // consumerTransport = transport;
-            socket.emit("consumerTransportCreated", params);
+            if (from === 'qt_client') {
+                socket.emit("consumerTransportCreated", JSON.stringify(params));
+            }
+            else {
+                socket.emit("consumerTransportCreated", params);
+            }
         } catch (error) {
             logger.error(error);
         }
     });
 
     socket.on("connectConsumerTransport", async (data) => {
+        const isJson = isJSON(data);
+        let from;
+        let dtlsParameters;
+        if (isJson) {
+            data = JSON.parse(data);
+            from = data.from;
+            dtlsParameters = data.dtlsParameters;
+            dtlsParameters=JSON.parse(dtlsParameters);
+        }
+        if (from !== 'qt_client') {
+            dtlsParameters = data.dtlsParameters;
+        }
         try {
             const room = getMeetRoom(socket);
             if (!room.consumerTransports.has(socket.id)) return;
             const consumerTransport = room.consumerTransports.get(socket.id);
-            await consumerTransport.connect({ dtlsParameters: data.dtlsParameters });
+            await consumerTransport.connect({ dtlsParameters:  dtlsParameters});
             socket.emit("consumerConnected");
         } catch (error) {
             logger.error(error);
@@ -1639,25 +1692,51 @@ function handleMeet(socket) {
     });
 
     socket.on("consume", async (data) => {
-        const room = getMeetRoom(socket);
-        const mediasoupRouter = room.router;
-        let ress = [];
-        if (room.producers.size === 0) return;
-        for (const sid of room.producers.keys()) {
-            if (sid === socket.id) {
-                continue;
-            }
-            const producerSet = room.producers.get(sid);
-            let consumers = [];
-            for (const producer of producerSet) {
-                const res = await createConsumer(mediasoupRouter, producer, data, socket, sid);
-                consumers.push(res);
-            }
-            if (consumers.length > 0) {
-                ress.push(consumers);
-            }
+        const isJson = isJSON(data);
+        let from;
+        if (isJson) {
+            data = JSON5.parse(data);
+            from = data.from;
+            data = data.data;
+            data = JSON5.parse(data);
         }
-        socket.emit("subscribed", ress);
+        const room = getMeetRoom(socket);
+        if (room.producers.size === 0) return;
+        const mediasoupRouter = room.router;
+        if (from === 'qt_client') {
+            let consumers = {};
+            for (const sid of room.producers.keys()) {
+                if (sid === socket.id) {
+                    continue;
+                }
+                const producerSet = room.producers.get(sid);
+                let consumer = {};
+                for (const producer of producerSet) {
+                    const res = await createConsumer(mediasoupRouter, producer, data, socket, sid);
+                    consumer[res.producerId] = res;
+                }
+                consumers[sid] = consumer;
+            }
+            socket.emit("subscribed", JSON.stringify(consumers));
+        }
+        else {
+            let ress = [];
+            for (const sid of room.producers.keys()) {
+                if (sid === socket.id) {
+                    continue;
+                }
+                const producerSet = room.producers.get(sid);
+                let consumers=[];
+                for (const producer of producerSet) {
+                    const res = await createConsumer(mediasoupRouter, producer, data, socket, sid);
+                    consumers.push(res);
+                }
+                if (consumers.length > 0) {
+                    ress.push(consumers);
+                }
+            }
+            socket.emit("subscribed", ress);
+        }
     });
 
     socket.on("consumeNewProducer", async (data) => {
