@@ -1,4 +1,6 @@
 import * as os from 'os';
+import { getLocalIP } from "../plugins.js";
+const localIP = getLocalIP();
 export const config = {
     listenIp: '0.0.0.0',
     listenPort: 3016,
@@ -39,19 +41,11 @@ export const config = {
             listenIps: [
                 {
                     ip: '0.0.0.0',
-                    announcedIp: '127.0.0.1', // replace by public IP address
+                    announcedIp: localIP,
+                    // 如果是本地浏览器之间测试，用127.0.0.1可以，
+                    // 如果Windows客户端和浏览器测试，必须用服务器地址，如果服务器在WSL里运行，就是主系统分配的ip地址
+                    // 如果上线服务器，就填公网ip地址
                 }
-            ],
-            listenInfos :
-            [
-              {
-                protocol : 'udp',
-                ip       : '127.0.0.1',
-              },
-              {
-                protocol : 'tcp',
-                ip       : '127.0.0.1',
-              }
             ],
             maxIncomeBitrate: 1500000,
             initialAvailableOutgoingBitrate: 1000000,

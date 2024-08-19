@@ -1685,7 +1685,7 @@ function handleMeet(socket) {
                     await consumer.resume();
                 }
             }
-            socket.emit("resumed");
+            socket.emit("resumed",room.id);
         } catch (error) {
             logger.error(error);
         }
@@ -1784,11 +1784,18 @@ function handleMeet(socket) {
         }
     });
 
-    socket.on("leaveMeetRoom", (sid) => {
+    socket.on("leaveMeetRoom", (data) => {
+        const isJson = isJSON(data);
+        let from;
+        if (isJson) {
+            data = JSON5.parse(data);
+            from = data.from;
+            data = data.id;
+        }
         const currRoom = getMeetRoom(socket);
         if (currRoom) {
             releaseResource(socket, currRoom);
-            io.to(currRoom.id).emit('meetRoomLeft', sid);
+            io.to(currRoom.id).emit('meetRoomLeft', data);
             leaveRoom(socket, currRoom.id);
         }
     });
