@@ -1513,16 +1513,19 @@ function handleMeet(socket) {
         const { isLive } = data;
         if (isLive) { // 直播
             let rid = data.id;
-            const lastRoom = getMeetRoom(socket);
-            if (lastRoom) {
-                leaveRoom(socket, lastRoom.id);
-            }
             if (!meetRooms.has(rid)) {
                 socket.emit("liveRoomNotExist", rid);
+                return;
             }
             else {
-                await socket.join(rid);
-                socket.emit("meetRoomEntered", rid);
+                const lastRoom = getMeetRoom(socket);
+                if (lastRoom) {
+                    leaveRoom(socket, lastRoom.id);
+                }
+                else {
+                    await socket.join(rid);
+                    socket.emit("meetRoomEntered", rid);
+                }
             }
         }
         else { // 会议
