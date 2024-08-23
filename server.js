@@ -361,7 +361,9 @@ if (process.env.NODE_ENV === 'prod') {
     ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.key';
     options = {
         key: fs.readFileSync(ssl_key),
-        cert: fs.readFileSync(ssl_crt)
+        cert: fs.readFileSync(ssl_crt),
+        maxVersion: "TLSv1.2",
+        servername: "api.chaosgomoku.fun"
     }
     server = https.createServer(options, app);
 }
