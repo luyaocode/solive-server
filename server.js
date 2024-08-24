@@ -328,20 +328,11 @@ function verifyToken(token, secretKey) {
     }
 }
 
-// Server
-// const express = require('express');
-// const http = require('http');
-// const https = require('https');
-// const app = express();
-// const fs = require('fs');
-// const path = require('path');
-
 import express from 'express';
 import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
-import tls from 'tls';
 
 const app = express();
 
@@ -357,13 +348,11 @@ childProcess.on('message', (message) => {
 let ssl_crt, ssl_key;
 let server, options;
 if (process.env.NODE_ENV === 'prod') {
-    ssl_crt = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.pem';
-    ssl_key = '/home/luyao/codes/chaos-gomoku/ssl/api.chaosgomoku.fun.key';
+    ssl_crt = '/home/luyao/codes/solive-server/ssl/api.chaosgomoku.fun.pem';
+    ssl_key = '/home/luyao/codes/solive-server/ssl/api.chaosgomoku.fun.key';
     options = {
         key: fs.readFileSync(ssl_key),
         cert: fs.readFileSync(ssl_crt),
-        maxVersion: "TLSv1.2",
-        servername: "api.chaosgomoku.fun"
     }
     server = https.createServer(options, app);
 }
@@ -371,8 +360,9 @@ else if (process.env.NODE_ENV === 'dev') {
     server = http.createServer(app);
 }
 
-// const socket = require('socket.io');
 import * as socket from 'socket.io';
+// import WebSocket from 'ws';
+// const socket = WebSocket;
 
 const io = new socket.Server(server, {
     cors: {
