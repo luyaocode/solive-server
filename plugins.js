@@ -1,4 +1,5 @@
 import * as os from 'os';
+import { publicIpv4 } from 'public-ip';
 
 export function isJSON(str) {
     try {
@@ -9,7 +10,29 @@ export function isJSON(str) {
     }
 }
 
-export function getLocalIP() {
+export async function getAnnouncedIp(){
+    if (process.env.NODE_ENV === 'prod') {
+        return getLocalIP();
+    }
+    else if (process.env.NODE_ENV === 'dev') {
+        return await getPublicIp();
+    }
+}
+
+async function getPublicIp() {
+    (async () => {
+        try {
+            const ip = await publicIpv4();
+            console.log('Public IP Address:', ip);
+            return ip;
+        } catch (error) {
+            console.error('Error:', error.message);
+            return '127.0.0.1';
+        }
+    })();
+}
+
+function getLocalIP() {
     const interfaces = os.networkInterfaces();
     for (const interfaceName in interfaces) {
         const addresses = interfaces[interfaceName];

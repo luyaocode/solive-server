@@ -8,10 +8,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 import * as mediasoup from 'mediasoup';
-import { config } from './config.js';
+import { getConfig } from './config.js';
 const worker = [];
 let nextMediasoupWorkerIdx = 0;
 const createWorker = () => __awaiter(void 0, void 0, void 0, function* () {
+    const config = yield getConfig();
     const worker = yield mediasoup.createWorker({
         logLevel: config.mediasoup.worker.logLevel,
         logTags: config.mediasoup.worker.logTags,
