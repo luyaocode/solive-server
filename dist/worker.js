@@ -11,8 +11,17 @@ import * as mediasoup from 'mediasoup';
 import { getConfig } from './config.js';
 const worker = [];
 let nextMediasoupWorkerIdx = 0;
+let config;
+export const initializeConfig = async () => {
+    try {
+        config = await getConfig();
+        console.log('Config loaded:', config);
+    } catch (error) {
+        console.error('Error loading config:', error);
+    }
+};
+
 const createWorker = () => __awaiter(void 0, void 0, void 0, function* () {
-    const config = yield getConfig();
     const worker = yield mediasoup.createWorker({
         logLevel: config.mediasoup.worker.logLevel,
         logTags: config.mediasoup.worker.logTags,

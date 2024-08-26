@@ -1,5 +1,6 @@
 import { isJSON } from './plugins.js'
 import JSON5 from 'json5';
+import cors  from 'cors';
 // 日志模块
 import { createLogger } from './logger.js';
 const logger = await createLogger('server');
@@ -22,9 +23,12 @@ const lib = ffi.Library('lib/libChaosGomokuUtils', {
 });
 
 import {
+    initializeConfig,
     createWorker,
     createWebrtcTransport,
 } from './dist/worker.js';
+
+await initializeConfig();
 
 // const createWorker = require('./dist/worker.js');
 function getformatNowTime() {
@@ -335,6 +339,7 @@ import fs from 'fs';
 import path from 'path';
 
 const app = express();
+app.use(cors()); // 允许所有来源
 
 import { fork } from 'child_process';
 // 创建子进程来处理 POST 请求
@@ -377,6 +382,7 @@ app.get('/', (req, res) => {
 
 // 静态文件
 app.use('/live-room', express.static('uploads'));
+app.use("/static", express.static("static/video"));
 
 let connectedSockets = {}
 let users = {}
@@ -1466,6 +1472,7 @@ function isSfuLiveRoom(rid) {
     return rid?.length === 8;
 }
 
+// 会议/sfu直播
 function handleMeet(socket) {
     socket.on("createMeetRoom", async (data) => {
         let isLive;

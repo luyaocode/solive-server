@@ -11,25 +11,23 @@ export function isJSON(str) {
 }
 
 export async function getAnnouncedIp(){
-    if (process.env.NODE_ENV === 'prod') {
+    if (process.env.NODE_ENV === 'dev') {
         return getLocalIP();
     }
-    else if (process.env.NODE_ENV === 'dev') {
+    else if (process.env.NODE_ENV === 'prod') {
         return await getPublicIp();
     }
 }
 
 async function getPublicIp() {
-    (async () => {
-        try {
-            const ip = await publicIpv4();
-            console.log('Public IP Address:', ip);
-            return ip;
-        } catch (error) {
-            console.error('Error:', error.message);
-            return '127.0.0.1';
-        }
-    })();
+    try {
+        const ip = await publicIpv4();
+        console.log('Public IP Address:', ip);
+        return ip;
+    } catch (error) {
+        console.error('Error:', error.message);
+        return '127.0.0.1';
+    }
 }
 
 function getLocalIP() {
