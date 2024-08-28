@@ -1509,7 +1509,7 @@ function handleMeet(socket) {
             data = JSON.parse(data);
         }
         const { isLive } = data;
-        if (isLive) { // 直播
+        if (isLive) { // sfu直播
             let rid = data.id;
             if (!meetRooms.has(rid)) {
                 socket.emit("liveRoomNotExist", rid);
@@ -1522,7 +1522,10 @@ function handleMeet(socket) {
                 }
                 else {
                     await socket.join(rid);
-                    socket.emit("meetRoomEntered", rid);
+                    socket.emit("meetRoomEntered", {
+                        rid: rid,
+                        anchorId: meetRooms.get(rid)['creator'],
+                     });
                 }
             }
         }
