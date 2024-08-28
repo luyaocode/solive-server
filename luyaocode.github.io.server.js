@@ -88,6 +88,36 @@ const postBlog = async (uuid,title, content) => {
     }
 }
 
+const updateBlog = async (uuid, title, content) => {
+    const { sequelize, Blog } = initdb();
+    try {
+        await sequelize.sync();
+        const [updatedRows] = await Blog.update(
+            {
+                title: title,
+                content: content,
+                time: new Date() // 更新记录的时间
+            },
+            {
+                where: { id: uuid }
+            }
+        );
+
+        if (updatedRows > 0) {
+            logger.info(`Blog post with ID ${uuid} was successfully updated.`);
+            return true;
+        } else {
+            logger.warn(`No blog post found with ID ${uuid}.`);
+            return false;
+        }
+    } catch (error) {
+        logger.error('Error occurred while updating blog:', error);
+        return false;
+    } finally {
+        await sequelize.close();
+    }
+}
+
 const getBlogs = async () => {
     const { sequelize,Blog}=initdb();
     try {
@@ -161,27 +191,99 @@ async function deleteBlogById(id) {
     }
 }
 
+// const getBlogsLatestUpdateTime = async () => {
+//     const { sequelize, Blog } = initdb();
+//     try {
+//         const latestUpdate = await Blog.findOne({
+//             order: [['updatedAt', 'DESC']],
+//             attributes: ['updatedAt']
+//         });
+//         if (latestUpdate) {
+//             logger.info(`Latest update: ${latestUpdate.updatedAt}`);
+//             return latestUpdate.updatedAt;
+//         } else {
+//             return null;
+//         }
+//     } catch (error) {
+//         logger.error('Error deleting blog:', error);
+//     } finally {
+//         await sequelize.close();
+//     }
+// }
+
+/**
+ *
+ * @returns 最新的修改记录（包括软删除、增加、修改）
+ */
 const getBlogsLatestUpdateTime = async () => {
     const { sequelize, Blog } = initdb();
     try {
+        // 获取最新的更新时间记录
         const latestUpdate = await Blog.findOne({
             order: [['updatedAt', 'DESC']],
-            attributes: ['updatedAt']
+            paranoid: false, // 包括软删除的记录
         });
-        if (latestUpdate) {
-            logger.info(`Latest update: ${latestUpdate.updatedAt}`);
-            return latestUpdate.updatedAt;
+
+        // 获取最新的创建时间记录
+        const latestCreated = await Blog.findOne({
+            order: [['createdAt', 'DESC']],
+            paranoid: false, // 包括软删除的记录
+        });
+
+        // 比较两个记录的时间戳并返回最新的记录
+        let latestRecord = null;
+        if (latestUpdate && latestCreated) {
+            const latestUpdateTime = new Date(latestUpdate.updatedAt).getTime();
+            const latestCreateTime = new Date(latestCreated.createdAt).getTime();
+
+            // 根据时间戳选择最新记录
+            latestRecord = latestUpdateTime > latestCreateTime ? latestUpdate : latestCreated;
         } else {
+            latestRecord = latestUpdate || latestCreated;
+        }
+
+        if (latestRecord) {
+            logger.info(`Latest record (including soft-deleted): ${JSON.stringify(latestRecord)}`);
+            return latestRecord;
+        } else {
+            logger.info('No records found.');
             return null;
         }
     } catch (error) {
-        logger.error('Error deleting blog:', error);
+        logger.error('Error fetching the latest record:', error);
+    } finally {
+        await sequelize.close();
+    }
+};
+
+
+/**
+ * 恢复所有软删除的记录
+ * @returns None
+ */
+async function restoreAllBlogs() {
+    const { sequelize, Blog } = initdb();
+    try {
+        const restoredRows = await Blog.restore({
+            where: {}, // 不指定条件，恢复所有软删除记录
+            // paranoid: true // 确保这是一个软删除的恢复
+        });
+
+        if (restoredRows > 0) {
+            logger.info(`Restored ${restoredRows} blogs`);
+        } else {
+            logger.info('No soft-deleted blogs found to restore');
+        }
+    } catch (error) {
+        logger.error('Error restoring blogs:', error);
     } finally {
         await sequelize.close();
     }
 }
 
 rundb();
+//
+// restoreAllBlogs();
 
 import http from 'http';
 import https from 'https';
@@ -211,18 +313,28 @@ app.use(bodyParser.json());
 
 // 校验暗号
 const check = (pwd) => {
-    if (pwd.length === 0) {
+    if (!Array.isArray(pwd) || pwd.length !== 7) {
         return false;
     }
+
     const today = new Date();
     let dayOfWeek = today.getDay();
     if (dayOfWeek === 0) {
         dayOfWeek = 7;
     }
-    if (pwd[dayOfWeek - 1] == dayOfWeek) {
-        return true;
+    // 检查数组中的条件
+    for (let i = 0; i < pwd.length; i++) {
+        if (i === dayOfWeek - 1) {
+            if (Number(pwd[i]) !== dayOfWeek) {
+                return false;
+            }
+        } else {
+            if (pwd[i] !== '') {
+                return false;
+            }
+        }
     }
-    return false;
+    return true;
 }
 
 // 处理 POST 请求的路由
@@ -242,6 +354,35 @@ app.post('/publish', async (req, res) => {
         // process.send({ received: true });
         // 发送状态码为 200 和消息给客户端，并设置 CORS 头部，通配符允许所有来源的ip地址的访问
         res.status(200).send({ data:"博客上传成功！",code:0});
+    }
+    catch(error) {
+        logger.info(error);
+    }
+});
+
+// 处理 POST 请求的路由
+app.post('/update', async (req, res) => {
+    const { type, uuid, title, content } = req.body;
+    const pwd = req.body['pwd[]'];
+    res.set('Access-Control-Allow-Origin', '*');
+    let opRet = false;
+    try {
+        if (!check(pwd)) {
+            res.status(200).send({data: "博客上传失败！暗号错误",code:-1});
+            return;
+        }
+        if (type === 'blog') {
+            opRet=updateBlog(uuid,title,content);
+        }
+        // 向父进程发送消息
+        // process.send({ received: true });
+        // 发送状态码为 200 和消息给客户端，并设置 CORS 头部，通配符允许所有来源的ip地址的访问
+        if (opRet) {
+            res.status(200).send({ data:"博客修改成功！",code:0});
+        }
+        else {
+            res.status(200).send({data: "博客修改失败",code:-1});
+        }
     }
     catch(error) {
         logger.info(error);
