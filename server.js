@@ -21,14 +21,15 @@ import * as ffi from 'ffi-napi';
 const lib = ffi.Library('lib/libChaosGomokuUtils', {
     'getformatCurrBjTime': ['string', []]
 });
-
+// 系统初始化
 import {
     initializeConfig,
     createWorker,
     createWebrtcTransport,
 } from './dist/worker.js';
-
-await initializeConfig();
+await initializeConfig(); // 初始化config
+import { initMq, sendToLianMaiQueue } from './src/service/mq.js';
+await initMq(); // 初始化mq
 
 // const createWorker = require('./dist/worker.js');
 function getformatNowTime() {
@@ -365,16 +366,8 @@ else if (process.env.NODE_ENV === 'dev') {
     server = http.createServer(app);
 }
 
-import * as socket from 'socket.io';
-// import WebSocket from 'ws';
-// const socket = WebSocket;
-
-const io = new socket.Server(server, {
-    cors: {
-        origin: '*',
-        method: ["GET", "POST"]
-    }
-});
+import { io,setIo } from './src/service/globals.js';
+setIo(server);
 
 app.get('/', (req, res) => {
     res.send('Hello, World!'); // 返回一个简单的响应
@@ -384,7 +377,8 @@ app.get('/', (req, res) => {
 app.use('/live-room', express.static('uploads'));
 app.use("/static", express.static("static/video"));
 
-let connectedSockets = {}
+import { connectedSockets } from './src/service/globals.js';
+// let connectedSockets = {}
 let users = {}
 let matchingArray = []
 let publicMsgs = [TitleNotice] // 公告板
@@ -1393,8 +1387,8 @@ function handleDisconnect(socket) {
     });
 }
 
-const meetRooms = new Map();// 会议12位号码，直播8位号码
-
+import { meetRooms } from './src/service/globals.js';
+// const meetRooms = new Map();// 会议12位号码，直播8位号码
 const generateMeetRoomId = (socketId) => {
     const combinedSocketId = `${socketId}`;
     const hash = crypto.createHash('sha256');
@@ -1417,18 +1411,8 @@ function leaveRoom(socket, rid) {
     socket.leave(rid);
 }
 
-function releaseResource(socket, room) {
-    let producerIdSet = new Set();
-    // 己方producer
-    if (room?.producers?.has(socket.id)) {
-        const producerSet = room.producers.get(socket.id);
-        for (const producer of producerSet) {
-            producer.close();
-            producerIdSet.add(producer.id);
-        }
-        room.producers.delete(socket.id);
-    }
-    // 己方consumer
+function releaseConsumer(socket,room) {
+    // 删除己方的consumer
     if (room?.consumers?.has(socket.id)) {
         const consumerMap = room.consumers.get(socket.id);
         for (const producerId of consumerMap.keys()) {
@@ -1438,8 +1422,26 @@ function releaseResource(socket, room) {
         }
         room.consumers.delete(socket.id);
     }
+    // 删除关闭consumer通道
+    if (room?.consumerTransports?.has(socket.id)) {
+        const consumerTransport = room.consumerTransports.get(socket.id);
+        consumerTransport.close();
+        room.consumerTransports.delete(socket.id);
+    }
+}
 
-    // 其他consumer
+export function releaseProducer(socket, room) {
+    let producerIdSet = new Set();
+    // 删除己方的producer
+    if (room?.producers?.has(socket.id)) {
+        const producerSet = room.producers.get(socket.id);
+        for (const producer of producerSet) {
+            producer.close();
+            producerIdSet.add(producer.id);
+        }
+        room.producers.delete(socket.id);
+    }
+    // 删除以自己为producer的其他peer的consumer
     if (room?.consumers && producerIdSet) {
         for (const consumerMap of room.consumers.values()) {
             for (const producerId of consumerMap.keys()) {
@@ -1451,24 +1453,20 @@ function releaseResource(socket, room) {
             }
         }
     }
-
+    // 关闭producer通道
     if (room?.producerTransports?.has(socket.id)) {
         const producerTransport = room.producerTransports.get(socket.id);
         producerTransport.close();
         room.producerTransports.delete(socket.id);
     }
-    if (room?.consumerTransports?.has(socket.id)) {
-        const consumerTransport = room.consumerTransports.get(socket.id);
-        consumerTransport.close();
-        room.consumerTransports.delete(socket.id);
-    }
-    // room.producers?.delete(socket.id);
-    // room.consumers?.delete(socket.id);
-    // room.producerTransports?.delete(socket.id);
-    // room.consumerTransports?.delete(socket.id);
 }
 
-function isSfuLiveRoom(rid) {
+function releaseResource(socket, room) {
+    releaseProducer(socket, room);
+    releaseConsumer(socket,room);
+}
+
+export function isSfuLiveRoom(rid) {
     return rid?.length === 8;
 }
 
@@ -1801,6 +1799,14 @@ function handleMeet(socket) {
             io.to(currRoom.id).emit('meetRoomLeft', data);
             leaveRoom(socket, currRoom.id);
         }
+    });
+
+    socket.on("lianMaiRequest", (request) => {
+        sendToLianMaiQueue(request);
+    });
+
+    socket.on("lianMaiResponse", (response) => {
+        sendToLianMaiQueue(response);
     });
 
     socket.on('disconnecting', () => {
