@@ -42,3 +42,4 @@ log/*
 
 deploy.sh
 *.db
+*.tar.gz

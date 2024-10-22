@@ -65,7 +65,7 @@ const rundb = async () => {
     } catch (error) {
         logger.error('Error occurred:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 };
 
@@ -84,7 +84,7 @@ const postBlog = async (uuid,title, content) => {
     } catch (error) {
         logger.error('Error occurred:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 }
 
@@ -114,7 +114,7 @@ const updateBlog = async (uuid, title, content) => {
         logger.error('Error occurred while updating blog:', error);
         return false;
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 }
 
@@ -138,7 +138,7 @@ const getBlogs = async () => {
     } catch (error) {
         logger.error('Error occurred:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 }
 
@@ -170,7 +170,7 @@ const getBlogById = async (id) => {
     } catch (error) {
         logger.error('Error finding blog by id:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 };
 
@@ -187,7 +187,7 @@ async function deleteBlogById(id) {
     } catch (error) {
         logger.error('Error deleting blog:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 }
 
@@ -207,7 +207,7 @@ async function deleteBlogById(id) {
 //     } catch (error) {
 //         logger.error('Error deleting blog:', error);
 //     } finally {
-//         await sequelize.close();
+//         sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
 //     }
 // }
 
@@ -252,7 +252,7 @@ const getBlogsLatestUpdateTime = async () => {
     } catch (error) {
         logger.error('Error fetching the latest record:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 };
 
@@ -277,7 +277,7 @@ async function restoreAllBlogs() {
     } catch (error) {
         logger.error('Error restoring blogs:', error);
     } finally {
-        await sequelize.close();
+        sequelize.close().catch(error => logger.error('Error closing connection after failure:', error));;
     }
 }
 
