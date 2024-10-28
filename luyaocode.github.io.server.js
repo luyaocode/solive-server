@@ -3,6 +3,7 @@ import bodyParser from 'body-parser';
 
 import { Sequelize, DataTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
+import axios from 'axios';
 
 // 日志模块
 import { createLogger } from './logger.js';
@@ -633,6 +634,34 @@ app.get('/tags', async (req, res) => {
         res.status(200).send(tags);
     }
     catch(error) {
+        logger.info(error);
+    }
+});
+
+// 三方授权
+const access_token_params = {
+    client_id: "Iv23liOH77T5kmvXYkx8",
+    client_secret: "2049b265b21c4a25664400d42732cceda6f7c82c",
+}
+
+app.post('/auth', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    const { code } = req.body;
+    const {client_id,client_secret } = access_token_params;
+    try {
+        const response = await axios.post('https://github.com/login/oauth/access_token', null, {
+            params: {
+                client_id,
+                client_secret,
+                code,
+            },
+            headers: {
+                Accept: 'application/json'
+            },
+            timeout: 60 * 1000,
+        });
+        res.status(200).send(response.data);
+    } catch (error) {
         logger.info(error);
     }
 });
