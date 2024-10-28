@@ -12,7 +12,6 @@ import { createLogger } from './logger.js';
 const logger = await createLogger('luyaocode.github.io.server');
 
 // 创建 Sequelize 实例，使用 SQLite 连接数据库
-
 const initdb = () => {
     const sequelize = new Sequelize({
         dialect: 'sqlite',
@@ -90,6 +89,19 @@ const initdb = () => {
 
     return { sequelize, Blog, Tag, BlogTag };
 }
+
+
+// 中间件
+const AUTH_ENABLED = true; // 是否鉴权
+// 鉴权中间件
+const authMiddleware = async (req, res, next) => {
+    const token = req.cookies[AUTH_TOKEN];
+    const isValid = await verifyToken(token);
+    if (!isValid) {
+        return res.status(401).send("未授权");
+    }
+    next();
+};
 
 /**
  * 测试用
@@ -198,13 +210,60 @@ async function getAllTagsWithPostCounts() {
             }
             return tag;
         });
+        return result;
     } catch(error) {
         logger.info(error);
+        return [];
     }
 }
 
+// 查询所有博客，按照文章时间降序排序
+async function getAllBlogsWithTags() {
+    try {
+        const { Blog, Tag } = db;
+        const blogsWithTags = await Blog.findAll({
+            attributes: ["id", "title", "time"],
+            order: [['time', 'DESC']], // 按照时间字段倒序排序
+            include: [
+                {
+                    model: Tag,
+                    attributes: ["id", "name"],
+                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
+                },
+            ],
+            // where: {
+            //     // 添加条件，确保查询到的博客有关联标签
+            //     '$Tags.id$': {
+            //         [Sequelize.Op.ne]: null // 只返回关联 id 不为 null 的博客
+            //     }
+            // },
+            raw: false,
+            nest: true,
+        });
+        // 确保 Tags 始终是数组
+        const result = blogsWithTags.map(blog => {
+            // 将 Tags 转换为数组，确保即使只有一个标签也能处理
+            blog.Tags = blog.Tags || []; // 确保 Tags 不为 null
+            return {
+                id: blog.id,
+                title: blog.title,
+                time: blog.time,
+                Tags: blog.Tags.map(tag => ({
+                    id: tag.id,
+                    name: tag.name,
+                })),
+            };
+        });
+        return result;
+    } catch (error) {
+        logger.info(error);
+        return [];
+    }
+}
+
+
 // 根据多个标签名查询对应id数组
-async function getTagIdsByNames(tagNames) {
+async function getTagIdsByNames(tagNames,transaction=null) {
     const { Tag } = db;
     try {
         const tags = await Tag.findAll({
@@ -212,7 +271,7 @@ async function getTagIdsByNames(tagNames) {
                 name: tagNames
             },
             attributes: ['id']
-        });
+        },transaction);
 
         const tagIds = tags.map(tag => tag.id);
         return tagIds;
@@ -272,21 +331,30 @@ async function deleteTagById(tagId) {
 // 博客操作
 const postBlog = async (uuid, title, content,tags) => {
     const { sequelize, Blog } = db;
-    const transaction = await sequelize.transaction(); // 创建事务
+    const transaction = await sequelize.transaction(); // 创建外层事务
     try {
-        const newPost = await Blog.create({
-            id: uuid,
-            title: title,
-            author: 'luyaocode',
-            content: content,
-            time: new Date()
-        });
-        await createTags(tags,transaction);
+        // 创建一个嵌套事务
+        const nestedTransaction = await sequelize.transaction();
+        let newPost;
+        try {
+            newPost = await Blog.create({
+                id: uuid,
+                title: title,
+                author: 'luyaocode',
+                content: content,
+                time: new Date()
+            }, { nestedTransaction });
+            await createTags(tags, nestedTransaction);
+            await nestedTransaction.commit();
+        }catch (nestedError) {
+            await nestedTransaction.rollback(); // 回滚嵌套事务
+            console.error('嵌套事务发生错误:', nestedError);
+        }
         // 关联
-        const tagIds=await getTagIdsByNames(tags);
-        newPost.setTags(tagIds);
-        // 提交事务
-        await transaction.commit();
+        if (newPost) {
+            const tagIds=await getTagIdsByNames(tags,transaction);
+            newPost.setTags(tagIds);
+        }
         logger.info(`New post created: ${JSON.stringify(newPost.toJSON(), null, 2)}`);
     } catch (error) {
         await transaction.rollback();
@@ -321,7 +389,7 @@ const updateBlog = async (uuid, title, content) => {
     }
 }
 
-// 查询所有博客，不带任何条件
+// 查询所有博客，不带任何条件，按照时间降序
 const getBlogs = async () => {
     const {Blog}=db;
     try {
@@ -554,9 +622,17 @@ const allowedOrigins = ['https://blog.chaosgomoku.fun'];
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
+    // if (allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // }
+
+
+     // 设置允许的 HTTP 方法
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    // 对于预检请求（OPTIONS 请求），直接返回 200
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
     }
     next();
 });
@@ -588,14 +664,8 @@ const check = (pwd) => {
 }
 
 // 处理 POST 请求的路由
-app.post('/publish', async (req, res) => {
-
-    // 鉴权
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
+app.post('/publish', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
     const { type, uuid, title, content } = req.body;
-
     const pwd = req.body['pwd[]']; // 参数为数组
     // 若 tags[] 参数只有一个值，req.body['tags[]'] 会被解析为一个字符串，而不是数组。
     // 这是由 Express 的 body - parser 或其他中间件的默认行为决定的。
@@ -622,13 +692,7 @@ app.post('/publish', async (req, res) => {
 });
 
 // 处理 POST 请求的路由
-app.post('/update', async (req, res) => {
-
-    // 鉴权
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
-
+app.post('/update', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
     const { type, uuid, title, content } = req.body;
     const pwd = req.body['pwd[]'];
     let opRet = false;
@@ -678,44 +742,9 @@ app.get('/blogs', async (req, res) => {
     }
 });
 
-app.get("/blogs_tags", async (req, res) => {
-
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
+app.get("/blogs_tags", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
     try {
-        const { Blog, Tag } = db;
-        const blogsWithTags = await Blog.findAll({
-            attributes: ["id", "title", "time"],
-            order: [['time', 'DESC']], // 按照时间字段倒序排序
-            include: [
-                {
-                    model: Tag,
-                    attributes: ["id", "name"],
-                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
-                },
-            ],
-            // where: {
-            //     // 添加条件，确保查询到的博客有关联标签
-            //     '$Tags.id$': {
-            //         [Sequelize.Op.ne]: null // 只返回关联 id 不为 null 的博客
-            //     }
-            // },
-            raw: true,
-            nest: true,
-        });
-        // 确保 Tags 始终是数组
-        const result = blogsWithTags.map(blog => {
-            if (!Array.isArray(blog.Tags)) {
-                if (blog.Tags.id === null) {
-                    blog.Tags = [];
-                }
-                else {
-                    blog.Tags = [blog.Tags];
-                }
-            }
-            return blog;
-        });
+        const result = await getAllBlogsWithTags();
         res.status(200).send(result);
     } catch (error) {
         console.error(error);
@@ -723,14 +752,10 @@ app.get("/blogs_tags", async (req, res) => {
     }
 });
 
-app.get("/tags_blogs", async (req, res) => {
-
-    const token = req.cookies[AUTH_TOKEN];
-    console.log(req.cookies); // 打印所有的 Cookie
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
+app.get("/tags_blogs", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
+    test();
     try {
-        const result = getAllTagsWithPostCounts();
+        const result = await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
         console.error(error);
@@ -738,6 +763,7 @@ app.get("/tags_blogs", async (req, res) => {
     }
 });
 
+// 查询博客：按照id
 app.get('/blog', async (req, res) => {
 
     try {
@@ -750,12 +776,10 @@ app.get('/blog', async (req, res) => {
     }
 });
 
-app.post('/delblog', async (req, res) => {
-    const pwd = req.body['pwd[]'];
 
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
+// 删除博客：在博客浏览界面
+app.delete('/delblog', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
+    const pwd = req.body['pwd[]'];
     try {
         if (!check(pwd)) {
             res.status(200).send({data: "博客删除失败！暗号错误",code:-1});
@@ -767,6 +791,19 @@ app.post('/delblog', async (req, res) => {
     }
     catch(error) {
         logger.info(error);
+    }
+});
+
+// 删除博客：在管理界面
+app.delete('/blogs/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
+    const blogId = req.params.id;
+    try {
+        await deleteBlogById(blogId);
+        const result=await getAllBlogsWithTags();
+        res.status(200).send(result);
+    } catch (error) {
+        logger.info('删除博客失败:', error);
+        res.status(500).send("删除博客失败");
     }
 });
 
@@ -784,35 +821,25 @@ app.get('/tags', async (req, res) => {
 });
 
 // 修改tag
-app.post('/tags/:id', async (req, res) => {
-
-    // 鉴权
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
-
+app.put('/tags/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
     const tagId = parseInt(req.params.id);
     const { name } = req.body;
     try {
-        const ret=updateTag(tagId,name);
-        res.status(200).send(ret);
+        await updateTag(tagId, name);
+        const result=await getAllTagsWithPostCounts();
+        res.status(200).send(result);
     } catch (error) {
         logger.info(error);
     }
 });
 
 // 删除标签
-app.get('/tags/:id', async (req, res) => {
-
-    // 鉴权
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
-
+app.delete('/tags/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
     const tagId = req.params.id;
     try {
-        const ret = await deleteTagById(tagId);
-        res.status(200).send(ret);
+        await deleteTagById(tagId);
+        const result=await getAllTagsWithPostCounts();
+        res.status(200).send(result);
     } catch (error) {
         logger.info('删除标签失败:', error);
         res.status(500).send("删除标签失败");
@@ -820,15 +847,10 @@ app.get('/tags/:id', async (req, res) => {
 });
 
 // 新增标签
-app.post('/tags/add', async (req, res) => {
-    // 鉴权
-    const token = req.cookies[AUTH_TOKEN];
-    const isValid = await verifyToken(token);
-    if (!isValid) return res.status(401).send("未授权");
-
+app.post('/tags', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
     const { name } = req.body;
     try {
-        await createTag(name, transaction);
+        await createTag(name);
         const result=await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
