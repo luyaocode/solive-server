@@ -184,36 +184,48 @@ async function getTagIdsByNames(tagNames) {
 
 // 更新标签
 async function updateTag(tagId, newName) {
-    const { Tag } = db;
+    const { sequelize, Tag } = db;
+    const transaction = await sequelize.transaction();
     try {
-        const tag = await Tag.findByPk(tagId);
-        if (tag) {
-            tag.name = newName;
-            await tag.save();
-            console.log(`标签已更新: ${tagId} -> ${newName}`);
-            return tag;
-        } else {
-            console.log(`未找到标签 ID: ${tagId}`);
+        const tag = await Tag.findByPk(tagId, { transaction }); // 在事务中查找标签
+        if (!tag) {
+            logger.info(`未找到标签 ID: ${tagId}`);
+            return false;
         }
+
+        const existingTag = await Tag.findOne({ where: { name: newName }, transaction });
+        if (existingTag) {
+            logger.info(`标签名称已存在: ${newName}`);
+            return false;
+        }
+
+        tag.name = newName;
+        await tag.save({ transaction });
+        await transaction.commit();
+        logger.info(`标签已更新: ${tagId} -> ${newName}`);
+        return true;
     } catch (error) {
-        console.error('更新标签失败:', error);
+        await transaction.rollback();
+        throw error;
     }
 }
 
 // 删除标签
-async function deleteTag(tagId) {
+async function deleteTagById(tagId) {
     const { Tag } = db;
     try {
         const deletedCount = await Tag.destroy({
             where: { id: tagId }
         });
         if (deletedCount > 0) {
-            console.log(`已删除标签 ID: ${tagId}`);
+            logger.info(`已删除标签 ID: ${tagId}`);
+            return true;
         } else {
-            console.log(`未找到标签 ID: ${tagId}`);
+            logger.info(`未找到标签 ID: ${tagId}`);
+            return false;
         }
     } catch (error) {
-        console.error('删除标签失败:', error);
+        throw error;
     }
 }
 
@@ -597,6 +609,86 @@ app.get('/blogs', async (req, res) => {
     }
 });
 
+app.get("/blogs_tags", async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    try {
+        const { Blog, Tag } = db;
+        const blogsWithTags = await Blog.findAll({
+            attributes: ["id", "title", "time"],
+            include: [
+                {
+                    model: Tag,
+                    attributes: ["id", "name"],
+                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
+                },
+            ],
+            // where: {
+            //     // 添加条件，确保查询到的博客有关联标签
+            //     '$Tags.id$': {
+            //         [Sequelize.Op.ne]: null // 只返回关联 id 不为 null 的博客
+            //     }
+            // },
+            raw: true,
+            nest: true,
+        });
+        // 确保 Tags 始终是数组
+        const result = blogsWithTags.map(blog => {
+            if (!Array.isArray(blog.Tags)) {
+                if (blog.Tags.id === null) {
+                    blog.Tags = [];
+                }
+                else {
+                    blog.Tags = [blog.Tags];
+                }
+            }
+            return blog;
+        });
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "服务器错误" });
+    }
+});
+
+app.get("/tags_blogs", async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    try {
+        const { Blog, Tag } = db;
+        const tagsWithBlogs = await Tag.findAll({
+            attributes: ["id", "name",
+                [db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "blogCount"] // 计数每个标签下的博客数量
+            ],
+            include: [
+                {
+                    model: Blog,
+                    attributes: ["id"],
+                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
+                },
+            ],
+            group: ["Tag.id"], // 按标签进行分组
+            order: [[db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "DESC"]], // 根据博客数量降序排序
+            raw: true,
+            nest: true,
+        });
+        // 确保 Tags 始终是数组
+        const result = tagsWithBlogs.map(tag => {
+            if (!Array.isArray(tag.Blogs)) {
+                if (tag.Blogs.id === null) {
+                    tag.Blogs = [];
+                }
+                else {
+                    tag.Blogs = [tag.Blogs];
+                }
+            }
+            return tag;
+        });
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "服务器错误" });
+    }
+});
+
 app.get('/blog', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     try {
@@ -635,6 +727,31 @@ app.get('/tags', async (req, res) => {
     }
     catch(error) {
         logger.info(error);
+    }
+});
+
+// 修改tag
+app.post('/tags/:id', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    const tagId = parseInt(req.params.id);
+    const { name } = req.body;
+    try {
+        const ret=updateTag(tagId,name);
+        res.status(200).send(ret);
+    } catch (error) {
+        logger.info(error);
+    }
+});
+
+// 删除标签
+app.get('/tags/:id', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    const tagId = req.params.id;
+    try {
+        const ret = await deleteTagById(tagId);
+        res.status(200).send(ret);
+    } catch (error) {
+        logger.info('删除标签失败:', error);
     }
 });
 
