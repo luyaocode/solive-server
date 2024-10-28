@@ -643,6 +643,7 @@ const access_token_params = {
     client_id: "Iv23liOH77T5kmvXYkx8",
     client_secret: "2049b265b21c4a25664400d42732cceda6f7c82c",
 }
+const myGithubId = 59311239;
 
 app.post('/auth', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -660,7 +661,25 @@ app.post('/auth', async (req, res) => {
             },
             timeout: 60 * 1000,
         });
-        res.status(200).send(response.data);
+
+        const access_token = response.data?.access_token;
+        if (!access_token) {
+            res.status(200).send(false);
+            return;
+        }
+        // 第二步：使用 access_token 获取用户信息
+        const userResponse = await axios.get('https://api.github.com/user', {
+            headers: {
+                Authorization: `Bearer ${access_token}`
+            }
+        });
+
+        const { id: githubUserId } = userResponse.data;
+        if (!githubUserId||githubUserId!==myGithubId) {
+            res.status(200).send(false);
+            return;
+        }
+        res.status(200).send(true);
     } catch (error) {
         logger.info(error);
     }
