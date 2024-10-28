@@ -508,6 +508,18 @@ app.use(bodyParser.json());
 // 使用解析cookie的中间件
 app.use(cookieParser());
 
+// 设置跨域
+const allowedOrigins = ['https://blog.chaosgomoku.fun'];
+
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    next();
+});
+
 // 校验暗号
 const check = (pwd) => {
     if (!Array.isArray(pwd) || pwd.length !== 7) {
@@ -536,7 +548,7 @@ const check = (pwd) => {
 
 // 处理 POST 请求的路由
 app.post('/publish', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     // 鉴权
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
@@ -570,7 +582,7 @@ app.post('/publish', async (req, res) => {
 
 // 处理 POST 请求的路由
 app.post('/update', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     // 鉴权
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
@@ -603,7 +615,7 @@ app.post('/update', async (req, res) => {
 });
 
 app.get('/blogs/get-latest-update-time', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     try {
         const latestUpdateTime = await getBlogsLatestUpdateTime();
         res.status(200).send(latestUpdateTime);
@@ -614,7 +626,7 @@ app.get('/blogs/get-latest-update-time', async (req, res) => {
 });
 
 app.get('/blogs', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     const tags = req.query.tags;
     try {
         const blogs=await getBlogsByTags(tags);
@@ -626,7 +638,7 @@ app.get('/blogs', async (req, res) => {
 });
 
 app.get("/blogs_tags", async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
@@ -670,8 +682,9 @@ app.get("/blogs_tags", async (req, res) => {
 });
 
 app.get("/tags_blogs", async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     const token = req.cookies[AUTH_TOKEN];
+    console.log(req.cookies); // 打印所有的 Cookie
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     try {
@@ -712,7 +725,7 @@ app.get("/tags_blogs", async (req, res) => {
 });
 
 app.get('/blog', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     try {
         const { id } = req.query;
         const blog=await getBlogById(id);
@@ -725,7 +738,7 @@ app.get('/blog', async (req, res) => {
 
 app.post('/delblog', async (req, res) => {
     const pwd = req.body['pwd[]'];
-    res.set('Access-Control-Allow-Origin', '*');
+
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
@@ -745,7 +758,7 @@ app.post('/delblog', async (req, res) => {
 
 // 标签
 app.get('/tags', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     try {
         const tags=await getAllTags();
         res.status(200).send(tags);
@@ -757,7 +770,7 @@ app.get('/tags', async (req, res) => {
 
 // 修改tag
 app.post('/tags/:id', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     // 鉴权
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
@@ -775,7 +788,7 @@ app.post('/tags/:id', async (req, res) => {
 
 // 删除标签
 app.get('/tags/:id', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     // 鉴权
     const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
@@ -819,7 +832,7 @@ const verifyToken = async (token) => {
 };
 
 app.post('/auth', async (req, res) => {
-    res.set('Access-Control-Allow-Origin', '*');
+
     const { code } = req.body;
     const {client_id,client_secret } = access_token_params;
     try {
@@ -854,13 +867,17 @@ app.post('/auth', async (req, res) => {
         }
         // 登录成功
         // 生成 JWT
-        const token = jwt.sign({ id: githubUserId }, SECRET_KEY, { expiresIn: '1h' }); // 1小时过期
+        const token = jwt.sign({ createdAt: Date.now() }, SECRET_KEY, { expiresIn: '1h' }); // 1小时过期
         // 可选择将 token 存储在 cookie 中
         res.cookie(AUTH_TOKEN, token, {
             httpOnly: true, // 仅通过 HTTP 协议访问
             secure: true,   // 仅在 HTTPS 上使用
+            sameSite: 'None', // 允许跨站请求
+            path: '/',// 设置 cookie 的路径为根路径
+            domain: ".chaosgomoku.fun",
             maxAge: 60 * 60 * 1000, // cookie 有效期为 1 小时
         });
+        logger.info("已生成博客网站的token: "+token);
         res.status(200).send(true);
     } catch (error) {
         logger.info(error);
