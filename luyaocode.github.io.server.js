@@ -538,7 +538,7 @@ const check = (pwd) => {
 app.post('/publish', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     // 鉴权
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     const { type, uuid, title, content } = req.body;
@@ -572,7 +572,7 @@ app.post('/publish', async (req, res) => {
 app.post('/update', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     // 鉴权
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
 
@@ -627,7 +627,7 @@ app.get('/blogs', async (req, res) => {
 
 app.get("/blogs_tags", async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     try {
@@ -671,7 +671,7 @@ app.get("/blogs_tags", async (req, res) => {
 
 app.get("/tags_blogs", async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     try {
@@ -726,7 +726,7 @@ app.get('/blog', async (req, res) => {
 app.post('/delblog', async (req, res) => {
     const pwd = req.body['pwd[]'];
     res.set('Access-Control-Allow-Origin', '*');
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     try {
@@ -759,7 +759,7 @@ app.get('/tags', async (req, res) => {
 app.post('/tags/:id', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     // 鉴权
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
 
@@ -777,7 +777,7 @@ app.post('/tags/:id', async (req, res) => {
 app.get('/tags/:id', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
     // 鉴权
-    const token = req.cookies.AUTH_TOKEN;
+    const token = req.cookies[AUTH_TOKEN];
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
 
@@ -805,6 +805,7 @@ const verifyToken = async (token) => {
         await new Promise((resolve, reject) => {
             jwt.verify(token, SECRET_KEY, (err) => {
                 if (err) {
+                    logger.info("token验证失败:token:"+token+" error:"+err);
                     return reject(err);
                 }
                 resolve(true);
