@@ -4,6 +4,8 @@ import bodyParser from 'body-parser';
 import { Sequelize, DataTypes } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
 
 // 日志模块
 import { createLogger } from './logger.js';
@@ -503,6 +505,9 @@ else if (process.env.NODE_ENV === 'dev') {
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// 使用解析cookie的中间件
+app.use(cookieParser());
+
 // 校验暗号
 const check = (pwd) => {
     if (!Array.isArray(pwd) || pwd.length !== 7) {
@@ -531,14 +536,20 @@ const check = (pwd) => {
 
 // 处理 POST 请求的路由
 app.post('/publish', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    // 鉴权
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
     const { type, uuid, title, content } = req.body;
+
     const pwd = req.body['pwd[]']; // 参数为数组
     // 若 tags[] 参数只有一个值，req.body['tags[]'] 会被解析为一个字符串，而不是数组。
     // 这是由 Express 的 body - parser 或其他中间件的默认行为决定的。
     // 当参数只有一个值时，它默认作为单个字符串处理；当有多个值时，才会作为数组处理。
     // 这里强制使用数组
     const tags = Array.isArray(req.body['tags[]']) ? req.body['tags[]'] : [req.body['tags[]']];
-    res.set('Access-Control-Allow-Origin', '*');
+
     try {
         if (!check(pwd)) {
             res.status(200).send({data: "博客上传失败！暗号错误",code:-1});
@@ -559,9 +570,14 @@ app.post('/publish', async (req, res) => {
 
 // 处理 POST 请求的路由
 app.post('/update', async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    // 鉴权
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
+
     const { type, uuid, title, content } = req.body;
     const pwd = req.body['pwd[]'];
-    res.set('Access-Control-Allow-Origin', '*');
     let opRet = false;
     try {
         if (!check(pwd)) {
@@ -611,6 +627,9 @@ app.get('/blogs', async (req, res) => {
 
 app.get("/blogs_tags", async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
     try {
         const { Blog, Tag } = db;
         const blogsWithTags = await Blog.findAll({
@@ -652,6 +671,9 @@ app.get("/blogs_tags", async (req, res) => {
 
 app.get("/tags_blogs", async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
     try {
         const { Blog, Tag } = db;
         const tagsWithBlogs = await Tag.findAll({
@@ -704,6 +726,9 @@ app.get('/blog', async (req, res) => {
 app.post('/delblog', async (req, res) => {
     const pwd = req.body['pwd[]'];
     res.set('Access-Control-Allow-Origin', '*');
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
     try {
         if (!check(pwd)) {
             res.status(200).send({data: "博客删除失败！暗号错误",code:-1});
@@ -733,6 +758,11 @@ app.get('/tags', async (req, res) => {
 // 修改tag
 app.post('/tags/:id', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
+    // 鉴权
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
+
     const tagId = parseInt(req.params.id);
     const { name } = req.body;
     try {
@@ -746,6 +776,11 @@ app.post('/tags/:id', async (req, res) => {
 // 删除标签
 app.get('/tags/:id', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
+    // 鉴权
+    const token = req.cookies.AUTH_TOKEN;
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
+
     const tagId = req.params.id;
     try {
         const ret = await deleteTagById(tagId);
@@ -760,7 +795,27 @@ const access_token_params = {
     client_id: "Iv23liOH77T5kmvXYkx8",
     client_secret: "2049b265b21c4a25664400d42732cceda6f7c82c",
 }
-const myGithubId = 59311239;
+const myGithubId = 59311239;// 授权用户白名单
+const SECRET_KEY = 'luyaocode.github.io'; // 用于签名 JWT 的密钥
+const AUTH_TOKEN = 'auth_token';
+
+// 验证 Token 的函数
+const verifyToken = async (token) => {
+    try {
+        await new Promise((resolve, reject) => {
+            jwt.verify(token, SECRET_KEY, (err) => {
+                if (err) {
+                    return reject(err);
+                }
+                resolve(true);
+            });
+        });
+        return true;
+    } catch (err) {
+        logger.info(err);
+        return false;
+    }
+};
 
 app.post('/auth', async (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
@@ -792,10 +847,19 @@ app.post('/auth', async (req, res) => {
         });
 
         const { id: githubUserId } = userResponse.data;
-        if (!githubUserId||githubUserId!==myGithubId) {
+        if (!githubUserId || githubUserId !== myGithubId) { //验证失败
             res.status(200).send(false);
             return;
         }
+        // 登录成功
+        // 生成 JWT
+        const token = jwt.sign({ id: githubUserId }, SECRET_KEY, { expiresIn: '1h' }); // 1小时过期
+        // 可选择将 token 存储在 cookie 中
+        res.cookie(AUTH_TOKEN, token, {
+            httpOnly: true, // 仅通过 HTTP 协议访问
+            secure: true,   // 仅在 HTTPS 上使用
+            maxAge: 60 * 60 * 1000, // cookie 有效期为 1 小时
+        });
         res.status(200).send(true);
     } catch (error) {
         logger.info(error);
