@@ -127,34 +127,35 @@ const test = async () => {
 const db = initdb(); // 单例
 
 // 标签操作
-// 创建标签
-createTag("teee");
-async function createTag(name) {
+// 创建单个标签
+async function createTag(name,transaction=null) {
     const { Tag } = db;
     try {
-        let tag = await Tag.findOne({ where: { name } });
+        let tag = await Tag.findOne({ where: { name } },transaction);
         if (tag) {
             console.log(`标签已存在: ${tag.name}`);
             return;
         }
-        tag = await Tag.create({ name });
+        tag = await Tag.create({ name }, {transaction});
         console.log(`标签已创建: ${tag.name}`);
+        return true;
     } catch (error) {
         console.error('创建标签失败:', error);
+        throw error;
     }
 }
 
-async function createTags(tags) {
+// 创建多个标签
+async function createTags(tags,transaction) {
     if (tags) {
         for (const tag of tags) {
-            await createTag(tag);
+            await createTag(tag,transaction);
         }
     }
 }
 
 // 查询所有标签
 async function getAllTags() {
-    test();
     const { Tag } = db;
     try {
         const tags = await Tag.findAll();
@@ -162,6 +163,43 @@ async function getAllTags() {
         return tags;
     } catch (error) {
         console.error('查询标签失败:', error);
+    }
+}
+
+// 查询所有标签，按照文章数量排序
+async function getAllTagsWithPostCounts() {
+    const { Blog, Tag } = db;
+    try {
+        const tagsWithBlogs = await Tag.findAll({
+            attributes: ["id", "name",
+                [db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "blogCount"] // 计数每个标签下的博客数量
+            ],
+            include: [
+                {
+                    model: Blog,
+                    attributes: ["id"],
+                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
+                },
+            ],
+            group: ["Tag.id"], // 按标签进行分组
+            order: [[db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "DESC"]], // 根据博客数量降序排序
+            raw: true,
+            nest: true,
+        });
+        // 确保 Tags 始终是数组
+        const result = tagsWithBlogs.map(tag => {
+            if (!Array.isArray(tag.Blogs)) {
+                if (tag.Blogs.id === null) {
+                    tag.Blogs = [];
+                }
+                else {
+                    tag.Blogs = [tag.Blogs];
+                }
+            }
+            return tag;
+        });
+    } catch(error) {
+        logger.info(error);
     }
 }
 
@@ -233,7 +271,8 @@ async function deleteTagById(tagId) {
 
 // 博客操作
 const postBlog = async (uuid, title, content,tags) => {
-    const { Blog } = db;
+    const { sequelize, Blog } = db;
+    const transaction = await sequelize.transaction(); // 创建事务
     try {
         const newPost = await Blog.create({
             id: uuid,
@@ -242,13 +281,15 @@ const postBlog = async (uuid, title, content,tags) => {
             content: content,
             time: new Date()
         });
-        await createTags(tags);
+        await createTags(tags,transaction);
         // 关联
         const tagIds=await getTagIdsByNames(tags);
         newPost.setTags(tagIds);
-
+        // 提交事务
+        await transaction.commit();
         logger.info(`New post created: ${JSON.stringify(newPost.toJSON(), null, 2)}`);
     } catch (error) {
+        await transaction.rollback();
         logger.error('Error occurred:', error);
     }
 }
@@ -646,6 +687,7 @@ app.get("/blogs_tags", async (req, res) => {
         const { Blog, Tag } = db;
         const blogsWithTags = await Blog.findAll({
             attributes: ["id", "title", "time"],
+            order: [['time', 'DESC']], // 按照时间字段倒序排序
             include: [
                 {
                     model: Tag,
@@ -688,35 +730,7 @@ app.get("/tags_blogs", async (req, res) => {
     const isValid = await verifyToken(token);
     if (!isValid) return res.status(401).send("未授权");
     try {
-        const { Blog, Tag } = db;
-        const tagsWithBlogs = await Tag.findAll({
-            attributes: ["id", "name",
-                [db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "blogCount"] // 计数每个标签下的博客数量
-            ],
-            include: [
-                {
-                    model: Blog,
-                    attributes: ["id"],
-                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
-                },
-            ],
-            group: ["Tag.id"], // 按标签进行分组
-            order: [[db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "DESC"]], // 根据博客数量降序排序
-            raw: true,
-            nest: true,
-        });
-        // 确保 Tags 始终是数组
-        const result = tagsWithBlogs.map(tag => {
-            if (!Array.isArray(tag.Blogs)) {
-                if (tag.Blogs.id === null) {
-                    tag.Blogs = [];
-                }
-                else {
-                    tag.Blogs = [tag.Blogs];
-                }
-            }
-            return tag;
-        });
+        const result = getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
         console.error(error);
@@ -757,6 +771,7 @@ app.post('/delblog', async (req, res) => {
 });
 
 // 标签
+// 查询tags
 app.get('/tags', async (req, res) => {
 
     try {
@@ -800,6 +815,25 @@ app.get('/tags/:id', async (req, res) => {
         res.status(200).send(ret);
     } catch (error) {
         logger.info('删除标签失败:', error);
+        res.status(500).send("删除标签失败");
+    }
+});
+
+// 新增标签
+app.post('/tags/add', async (req, res) => {
+    // 鉴权
+    const token = req.cookies[AUTH_TOKEN];
+    const isValid = await verifyToken(token);
+    if (!isValid) return res.status(401).send("未授权");
+
+    const { name } = req.body;
+    try {
+        await createTag(name, transaction);
+        const result=await getAllTagsWithPostCounts();
+        res.status(200).send(result);
+    } catch (error) {
+        logger.info('新增标签失败:', error);
+        res.status(500).send("新增标签失败");
     }
 });
 
