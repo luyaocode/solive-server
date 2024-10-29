@@ -92,7 +92,7 @@ const initdb = () => {
 
 
 // 中间件
-const AUTH_ENABLED = true; // 是否鉴权
+const AUTH_ENABLED = false; // 是否鉴权
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -140,7 +140,10 @@ const db = initdb(); // 单例
 
 // 标签操作
 // 创建单个标签
-async function createTag(name,transaction=null) {
+async function createTag(name, transaction = null) {
+    if (name === ''||name==undefined) {
+        return;
+    }
     const { Tag } = db;
     try {
         let tag = await Tag.findOne({ where: { name } },transaction);
@@ -195,7 +198,7 @@ const getTagsByBlogId = async (blogId) => {
         });
         return blog ? blog.Tags.map(tag => tag.get({ plain: true })) : [];
     } catch (error) {
-        logger.info('获取标签时出错:', error);
+        logger.error('获取标签时出错:', error);
         throw error;
     }
 };
@@ -204,38 +207,47 @@ const getTagsByBlogId = async (blogId) => {
 async function getAllTagsWithPostCounts() {
     const { Blog, Tag } = db;
     try {
-        const tagsWithBlogs = await Tag.findAll({
-            attributes: ["id", "name",
-                [db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "blogCount"] // 计数每个标签下的博客数量
+        // 获取标签及其博客数量
+        const tagsWithCounts = await Tag.findAll({
+            attributes: [
+                "id",
+                "name",
+                [db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "blogCount"]
             ],
             include: [
                 {
                     model: Blog,
-                    attributes: ["id"],
-                    through: { attributes: [] }, // 排除中间表 BlogTag 的所有字段
-                },
+                    attributes: ["id", "title", "author", "time"], // 选择所需的博客字段
+                    through: { attributes: [] } // 排除中间表字段
+                }
             ],
-            group: ["Tag.id"], // 按标签进行分组
-            order: [[db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "DESC"]], // 根据博客数量降序排序
-            raw: true,
-            nest: true,
+            group: ["Tag.id"], // 按 Tag.id 分组
+            order: [[db.sequelize.fn("COUNT", db.sequelize.col("Blogs.id")), "DESC"]], // 按博客数量降序排列
+            nest: true, // 使返回数据更具可读性
         });
-        // 确保 Tags 始终是数组
-        const result = tagsWithBlogs.map(tag => {
-            if (!Array.isArray(tag.Blogs)) {
-                if (tag.Blogs.id === null) {
-                    tag.Blogs = [];
-                }
-                else {
-                    tag.Blogs = [tag.Blogs];
-                }
-            }
-            return tag;
-        });
-        return result;
-    } catch(error) {
-        logger.info(error);
-        return [];
+
+        // 获取每个标签的所有相关博客，并只返回数据
+        const tagsWithBlogs = await Promise.all(tagsWithCounts.map(async (tag) => {
+            const blogs = await tag.getBlogs(); // 获取关联的博客
+            const blogData = blogs.map(blog => ({
+                id: blog.id,
+                title: blog.title,
+                author: blog.author,
+                time: blog.time
+            })); // 提取每个博客的必要属性
+
+            return {
+                id: tag.id,
+                name: tag.name,
+                blogCount: tag.dataValues.blogCount,
+                Blogs: blogData
+            };
+        }));
+
+        return tagsWithBlogs;
+    } catch (error) {
+        console.error("Error fetching tags with blogs sorted by blog count:", error);
+        throw error;
     }
 }
 
@@ -278,7 +290,7 @@ async function getAllBlogsWithTags() {
         });
         return result;
     } catch (error) {
-        logger.info(error);
+        logger.error(error);
         return [];
     }
 }
@@ -384,6 +396,8 @@ const postBlog = async (uuid, title, content,tags) => {
     }
 }
 
+
+// 更新博客
 const updateBlog = async (uuid, title, content) => {
     const { Blog } = db;
     try {
@@ -407,6 +421,32 @@ const updateBlog = async (uuid, title, content) => {
         }
     } catch (error) {
         logger.error('Error occurred while updating blog:', error);
+        return false;
+    }
+}
+
+// 更新博客标题
+const updateBlogTitle = async (uuid, title) => {
+    const { Blog } = db;
+    try {
+        const [updatedRows] = await Blog.update(
+            {
+                title: title // 仅更新标题
+            },
+            {
+                where: { id: uuid }
+            }
+        );
+
+        if (updatedRows > 0) {
+            logger.info(`Blog post with ID ${uuid} was successfully updated.`);
+            return true;
+        } else {
+            logger.warn(`No blog post found with ID ${uuid}.`);
+            return false;
+        }
+    } catch (error) {
+        logger.error('Error occurred while updating blog title:', error);
         return false;
     }
 }
@@ -496,7 +536,7 @@ const getBlogById = async (id) => {
             return null;
         }
     } catch (error) {
-        logger.info('Error finding blog by id:', error);
+        logger.error('Error finding blog by id:', error);
     }
 };
 
@@ -567,7 +607,7 @@ async function updateBlogTags(blogId,tagIds) {
     } catch (error) {
         // 回滚事务
         await transaction.rollback();
-        logger.info('Error updating blog tags:', error);
+        logger.error('Error updating blog tags:', error);
         throw error;
     }
 }
@@ -751,7 +791,7 @@ app.post('/publish', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),
         res.status(200).send({ data:"博客上传成功！",code:0});
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -779,7 +819,22 @@ app.post('/update', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), 
         }
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
+    }
+});
+
+// 修改博客标题
+app.put('/blogs/:blogId/title', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
+    const { blogId } = req.params;
+    const { title } = req.body;
+    try {
+        await updateBlogTitle(blogId,title);
+        const result = await getAllBlogsWithTags();
+        res.status(200).send(result);
+    }
+    catch(error) {
+        logger.error(error);
+        res.status(500).send({ error: 'Internal Server Error' });
     }
 });
 
@@ -802,7 +857,7 @@ app.get('/blogs', async (req, res) => {
         res.status(200).send(blogs);
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -836,7 +891,7 @@ app.get('/blog', async (req, res) => {
         res.status(200).send(blog);
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -854,7 +909,7 @@ app.delete('/delblog', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(
         res.status(200).send({data: "博客删除成功",code:0});
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -866,7 +921,7 @@ app.delete('/blogs/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => nex
         const result=await getAllBlogsWithTags();
         res.status(200).send(result);
     } catch (error) {
-        logger.info('删除博客失败:', error);
+        logger.error('删除博客失败:', error);
         res.status(500).send("删除博客失败");
     }
 });
@@ -880,7 +935,7 @@ app.get('/tags', async (req, res) => {
         res.status(200).send(tags);
     }
     catch(error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -891,7 +946,7 @@ app.get('/blogs/:blogId/tags', async (req, res) => {
         const tags = await getTagsByBlogId(blogId);
         res.status(200).send(tags);
     } catch (error) {
-        logger.info(error);
+        logger.error(error);
         res.status(500).send({ error: '服务器错误' });
     }
 });
@@ -911,7 +966,7 @@ app.put('/blogs/:blogId/tags', AUTH_ENABLED ? authMiddleware : (req, res, next) 
         const result = await getAllBlogsWithTags();
         res.status(200).send(result);
     } catch (error) {
-        logger.info(error);
+        logger.error(error);
         res.status(500).send({ error: '服务器错误' });
     }
 });
@@ -925,7 +980,7 @@ app.put('/tags/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),
         const result=await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
@@ -937,7 +992,7 @@ app.delete('/tags/:id', AUTH_ENABLED ? authMiddleware : (req, res, next) => next
         const result=await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
-        logger.info('删除标签失败:', error);
+        logger.error('删除标签失败:', error);
         res.status(500).send("删除标签失败");
     }
 });
@@ -950,7 +1005,7 @@ app.post('/tags', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),asy
         const result=await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
-        logger.info('新增标签失败:', error);
+        logger.error('新增标签失败:', error);
         res.status(500).send("新增标签失败");
     }
 });
@@ -970,7 +1025,7 @@ const verifyToken = async (token) => {
         await new Promise((resolve, reject) => {
             jwt.verify(token, SECRET_KEY, (err) => {
                 if (err) {
-                    logger.info("token验证失败:token:"+token+" error:"+err);
+                    logger.error("token验证失败:token:"+token+" error:"+err);
                     return reject(err);
                 }
                 resolve(true);
@@ -978,7 +1033,7 @@ const verifyToken = async (token) => {
         });
         return true;
     } catch (err) {
-        logger.info(err);
+        logger.error(err);
         return false;
     }
 };
@@ -1032,7 +1087,7 @@ app.post('/auth', async (req, res) => {
         logger.info("已生成博客网站的token: "+token);
         res.status(200).send(true);
     } catch (error) {
-        logger.info(error);
+        logger.error(error);
     }
 });
 
