@@ -170,13 +170,35 @@ async function createTags(tags,transaction) {
 async function getAllTags() {
     const { Tag } = db;
     try {
-        const tags = await Tag.findAll();
-        console.log('所有标签:', tags);
+        const tags = await Tag.findAll({
+            attributes: ['id', 'name'] // 仅查询 id 和 name 字段
+        });
+        logger.info('所有标签:', tags);
         return tags;
     } catch (error) {
-        console.error('查询标签失败:', error);
+        logger.info('查询标签失败:', error);
+        return [];
     }
 }
+
+// 查询某博客的所有标签
+const getTagsByBlogId = async (blogId) => {
+    const { Blog,Tag } = db;
+    try {
+        const blog = await Blog.findOne({
+            where: { id: blogId },
+            include: {
+                model: Tag,
+                attributes: ['id', 'name'],
+                through: { attributes: [] }
+            }
+        });
+        return blog ? blog.Tags.map(tag => tag.get({ plain: true })) : [];
+    } catch (error) {
+        logger.info('获取标签时出错:', error);
+        throw error;
+    }
+};
 
 // 查询所有标签，按照文章数量排序
 async function getAllTagsWithPostCounts() {
@@ -474,7 +496,7 @@ const getBlogById = async (id) => {
             return null;
         }
     } catch (error) {
-        logger.error('Error finding blog by id:', error);
+        logger.info('Error finding blog by id:', error);
     }
 };
 
@@ -505,6 +527,48 @@ const getBlogsByIds = async (ids) => {
         return res;
     } catch (error) {
         logger.error('Error finding blog by id:', error);
+    }
+}
+
+// 修改博客标签
+async function updateBlogTags(blogId,tagIds) {
+    const { Blog, Tag, BlogTag, sequelize } = db;
+    const transaction = await sequelize.transaction();
+    try {
+        // 查找博客
+        const blog = await Blog.findByPk(blogId, { transaction });
+        if (!blog) {
+            logger.error(`Blog with ID ${blogId} not found.`);
+            throw new Error(`Blog not found`);
+        }
+
+        // 查找标签
+        const validTags = await Tag.findAll({
+            where: { id: tagIds },
+            attributes: ['id'],
+            transaction,
+        });
+
+        // 清空现有标签
+        await blog.setTags([], { transaction });
+
+        // 如果没有有效的标签 ID，直接提交事务
+        if (validTags.length === 0) {
+            await transaction.commit();
+            return;
+        }
+
+        // 如果找到有效的标签，则关联这些标签
+        if (validTags.length > 0) {
+            await blog.setTags(validTags, { transaction });
+        }
+        // 提交事务
+        await transaction.commit();
+    } catch (error) {
+        // 回滚事务
+        await transaction.rollback();
+        logger.info('Error updating blog tags:', error);
+        throw error;
     }
 }
 
@@ -748,18 +812,18 @@ app.get("/blogs_tags", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(
         res.status(200).send(result);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: "服务器错误" });
+        res.status(500).send({ error: "服务器错误" });
     }
 });
 
 app.get("/tags_blogs", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
-    test();
+    // test();
     try {
         const result = await getAllTagsWithPostCounts();
         res.status(200).send(result);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: "服务器错误" });
+        res.status(500).send({ error: "服务器错误" });
     }
 });
 
@@ -817,6 +881,38 @@ app.get('/tags', async (req, res) => {
     }
     catch(error) {
         logger.info(error);
+    }
+});
+
+// 获取特定博客的标签
+app.get('/blogs/:blogId/tags', async (req, res) => {
+    const { blogId } = req.params;
+    try {
+        const tags = await getTagsByBlogId(blogId);
+        res.status(200).send(tags);
+    } catch (error) {
+        logger.info(error);
+        res.status(500).send({ error: '服务器错误' });
+    }
+});
+
+// 修改特定博客的标签
+app.put('/blogs/:blogId/tags', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
+    const { blogId } = req.params;
+    let tagIds = req.body['tagIds[]'];
+    if (!tagIds) {
+        tagIds = [];
+    }
+    else if (!Array.isArray(tagIds)) {
+        tagIds = [tagIds];
+    }
+    try {
+        await updateBlogTags(blogId, tagIds);
+        const result = await getAllBlogsWithTags();
+        res.status(200).send(result);
+    } catch (error) {
+        logger.info(error);
+        res.status(500).send({ error: '服务器错误' });
     }
 });
 
