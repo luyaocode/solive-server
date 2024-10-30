@@ -92,7 +92,7 @@ const initdb = () => {
 
 
 // 中间件
-const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -875,7 +875,7 @@ app.get('/blogs', async (req, res) => {
     }
 });
 
-app.get("/blogs_tags", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
+app.get("/blogs_tags", async (req, res) => {
     try {
         const result = await getAllBlogsWithTags();
         res.status(200).send(result);
@@ -885,7 +885,7 @@ app.get("/blogs_tags", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(
     }
 });
 
-app.get("/tags_blogs", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
+app.get("/tags_blogs", async (req, res) => {
     // test();
     try {
         const result = await getAllTagsWithPostCounts();
@@ -1052,8 +1052,17 @@ const verifyToken = async (token) => {
     }
 };
 
-app.post('/auth', async (req, res) => {
+app.get("/blogs_man", AUTH_ENABLED ? authMiddleware : (req, res, next) => next(), async (req, res) => {
+    try {
+        const result = await getAllTagsWithPostCounts();
+        res.status(200).send(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "服务器错误" });
+    }
+});
 
+app.post('/auth', async (req, res) => {
     const { code } = req.body;
     const {client_id,client_secret } = access_token_params;
     try {
