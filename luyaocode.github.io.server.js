@@ -1,7 +1,7 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 
-import { Sequelize, DataTypes } from "sequelize";
+import { Sequelize, DataTypes ,Op} from "sequelize";
 import { v4 as uuidv4 } from "uuid";
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
@@ -92,7 +92,7 @@ const initdb = () => {
 
 
 // 中间件
-const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -476,23 +476,30 @@ const getBlogs = async () => {
 
 // 查询博客，根据标签数组
 const getBlogsByTags = async (tags) => {
-    if (!tags) {
-        return await getBlogs();
+    if (!tags || tags.length === 0) {
+        return await getBlogs(); // 如果没有标签，获取所有博客
     }
+
     const { Blog, Tag } = db;
     try {
         const blogs = await Blog.findAll({
             attributes: ['id', 'title', 'author', 'time'], // 选择需要的字段
             include: [{
                 model: Tag,
-                where: { id: tags }, // 使用 tagIds 查询符合条件的标签
-                through: { attributes: [] }
+                where: {
+                    id: {
+                        [Op.in]: tags // 使用 Op.in 查询符合条件的标签
+                    }
+                },
+                through: { attributes: [] } // 不返回中间表的字段
             }],
+            group: ['Blog.id'], // 按博客 ID 分组
+            having: Sequelize.literal(`COUNT("Tags"."id") = ${tags.length}`), // 确保所有标签都匹配
             order: [['time', 'DESC']], // 按时间倒序排序
             logging: console.log // 记录 SQL 查询到控制台
         });
 
-        const res = blogs.map(blog => {
+        return blogs.map(blog => {
             logger.info(`Title: ${blog.title}, Author: ${blog.author}, Time: ${blog.time}`);
             return {
                 id: blog.id,
@@ -501,8 +508,6 @@ const getBlogsByTags = async (tags) => {
                 time: blog.time,
             };
         });
-
-        return res;
     } catch (error) {
         console.error('查询错误:', error);
         return [];
@@ -839,6 +844,7 @@ app.put('/blogs/:blogId/title', AUTH_ENABLED ? authMiddleware : (req, res, next)
     }
 });
 
+// 查询blogs最近更新时间
 app.get('/blogs/get-latest-update-time', async (req, res) => {
 
     try {
@@ -850,6 +856,8 @@ app.get('/blogs/get-latest-update-time', async (req, res) => {
     }
 });
 
+
+// 根据标签ids查询博客
 app.get('/blogs', async (req, res) => {
 
     const tags = req.query.tags;
