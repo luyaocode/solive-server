@@ -474,7 +474,7 @@ const getBlogs = async () => {
     }
 }
 
-// 查询博客，根据标签数组
+// 查询博客，根据标签数组，返回结果带Tags属性
 const getBlogsByTags = async (tags) => {
     if (!tags || tags.length === 0) {
         return await getBlogs(); // 如果没有标签，获取所有博客
@@ -499,15 +499,20 @@ const getBlogsByTags = async (tags) => {
             logging: console.log // 记录 SQL 查询到控制台
         });
 
-        return blogs.map(blog => {
+        // 获取每个博客的标签
+        const blogsWithTags = await Promise.all(blogs.map(async (blog) => {
+            const tags = await blog.getTags(); // 获取标签
             logger.info(`Title: ${blog.title}, Author: ${blog.author}, Time: ${blog.time}`);
             return {
                 id: blog.id,
                 title: blog.title,
                 author: blog.author,
                 time: blog.time,
+                Tags: tags
             };
-        });
+        }));
+
+        return blogsWithTags;
     } catch (error) {
         console.error('查询错误:', error);
         return [];
