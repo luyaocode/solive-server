@@ -92,7 +92,7 @@ const initdb = () => {
 
 
 // 中间件
-const AUTH_ENABLED = false; // 是否鉴权
+const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -722,10 +722,11 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 
 // 设置跨域
-const allowedOrigins = ['https://blog.chaosgomoku.fun'];
+const allowedOrigins = ['https://blog.chaosgomoku.fun']; // 前端域名白名单
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
+    if (!origin) return;
     // if (allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
         res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -1088,6 +1089,7 @@ app.post('/auth', async (req, res) => {
         res.status(200).send(true);
     } catch (error) {
         logger.error(error);
+        res.status(500).send("已超时");
     }
 });
 
