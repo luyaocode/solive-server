@@ -106,7 +106,7 @@ const isParanoidEnabled = (model) => {
 
 
 // 中间件
-const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
