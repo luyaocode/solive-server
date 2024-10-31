@@ -27,10 +27,16 @@ const initdb = () => {
         },
         name: {
             type: DataTypes.STRING,
-            unique: true,
+            unique: false,
             allowNull: false
         }
-    });
+        },
+        {
+            tableName: 'tag',
+            timestamps: true, // 启用时间戳
+            paranoid: true, // 启用软删除
+        }
+    );
 
     // 定义文章模型
     const Blog = sequelize.define('Blog',
@@ -70,15 +76,18 @@ const initdb = () => {
     });
 
     // 定义多对多关联
-    const BlogTag = sequelize.define('BlogTag', {});
+    const BlogTag = sequelize.define('BlogTag', {
+        tableName: 'blog_tag', // 可选: 指定表名
+        timestamps: true, // 启用时间戳
+        paranoid: true, // 启用软删除
+    });
 
     // 设置模型关联
     Blog.belongsToMany(Tag, { through: BlogTag });
     Tag.belongsToMany(Blog, { through: BlogTag });
 
-
     // 同步数据库
-    // await sequelize.sync({ force: true }); // 清空数据库，慎用
+    // sequelize.sync({ force: true }); // 清空数据库，慎用
     sequelize.sync()
     .then(() => {
         console.log('数据库已同步');
@@ -90,9 +99,14 @@ const initdb = () => {
     return { sequelize, Blog, Tag, BlogTag };
 }
 
+// 检查是否启用了软删除
+const isParanoidEnabled = (model) => {
+    return model.options.paranoid === true;
+};
+
 
 // 中间件
-const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -204,7 +218,7 @@ const getTagsByBlogId = async (blogId) => {
 };
 
 // 查询所有标签，按照文章数量排序
-async function getAllTagsWithPostCounts() {
+async function getAllTagsWithPostCounts(withBlogs=true) {
     const { Blog, Tag } = db;
     try {
         // 获取标签及其博客数量
@@ -226,6 +240,16 @@ async function getAllTagsWithPostCounts() {
             nest: true, // 使返回数据更具可读性
         });
 
+        if (!withBlogs) {
+            const result = tagsWithCounts.map((tag) => {
+                return {
+                    id: tag.id,
+                    name: tag.name,
+                    blogCount: tag.dataValues.blogCount,
+                }
+            });
+            return result;
+        }
         // 获取每个标签的所有相关博客，并只返回数据
         const tagsWithBlogs = await Promise.all(tagsWithCounts.map(async (tag) => {
             const blogs = await tag.getBlogs(); // 获取关联的博客
@@ -235,7 +259,6 @@ async function getAllTagsWithPostCounts() {
                 author: blog.author,
                 time: blog.time
             })); // 提取每个博客的必要属性
-
             return {
                 id: tag.id,
                 name: tag.name,
@@ -477,7 +500,7 @@ const getBlogs = async () => {
 // 查询博客，根据标签数组，返回结果带Tags属性
 const getBlogsByTags = async (tags) => {
     if (!tags || tags.length === 0) {
-        return await getBlogs(); // 如果没有标签，获取所有博客
+        return await getAllBlogsWithTags(); // 如果没有标签，获取所有博客
     }
 
     const { Blog, Tag } = db;
@@ -582,7 +605,7 @@ const getBlogsByIds = async (ids) => {
 
 // 修改博客标签
 async function updateBlogTags(blogId,tagIds) {
-    const { Blog, Tag, BlogTag, sequelize } = db;
+    const { Blog, Tag, sequelize } = db;
     const transaction = await sequelize.transaction();
     try {
         // 查找博客
@@ -636,46 +659,78 @@ async function deleteBlogById(id) {
         logger.error('Error deleting blog:', error);
     }
 }
+
+const getTableLatestUpdate = async (model) => {
+    try {
+        // 获取最新的更新时间记录
+        const latestUpdate = await model.findOne({
+            order: [['updatedAt', 'DESC']],
+            paranoid: false,
+        });
+
+        // 获取最新的创建时间记录
+        const latestCreated = await model.findOne({
+            order: [['createdAt', 'DESC']],
+            paranoid: false,
+        });
+
+
+        let latestDeleted;
+        // 获取最新的删除时间记录(软删除才有)
+        if (isParanoidEnabled(model)) {
+            latestDeleted = await model.findOne({
+                order: [['deletedAt', 'DESC']],
+                paranoid: false,
+            });
+        }
+
+        // 比较两个记录的时间戳并返回最新的记录
+        let latestTimestamp=-999;
+        let latestUpdateTime = -999;
+        let latestCreateTime = -999;
+        let latestDeleteTime = -999;
+        if(latestUpdate) latestUpdateTime = new Date(latestUpdate.updatedAt).getTime();
+        if(latestCreated) latestCreateTime = new Date(latestCreated.createdAt).getTime();
+        if(latestDeleted) latestDeleteTime = new Date(latestDeleted.deletedAt).getTime();
+        const timestamps = [latestUpdateTime, latestCreateTime, latestDeleteTime].filter(ts => ts !== null);
+        latestTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : latestTimestamp;
+        return latestTimestamp;
+    } catch (error) {
+        logger.error('Error fetching the latest record:', error);
+        return null;
+    }
+}
+
 /**
  *
  * @returns 最新的修改记录（包括软删除、增加、修改）
  */
-const getBlogsLatestUpdateTime = async () => {
-    const { Blog } = db;
+const getDataLatestUpdate = async (timepoint) => {
+    const { Blog,Tag ,BlogTag} = db;
     try {
-        // 获取最新的更新时间记录
-        const latestUpdate = await Blog.findOne({
-            order: [['updatedAt', 'DESC']],
-            paranoid: false, // 包括软删除的记录
-        });
+        const blogsTimestamp = await getTableLatestUpdate(Blog);
+        const tagsTimestamp = await getTableLatestUpdate(Tag);
+        const blogTagTimestamp = await getTableLatestUpdate(BlogTag);
+        // 将所有时间戳放入数组，过滤掉 null 值
+        const timestamps = [blogsTimestamp, tagsTimestamp, blogTagTimestamp].filter(ts => ts !== null);
+        // 取最大值
+        const latestTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
 
-        // 获取最新的创建时间记录
-        const latestCreated = await Blog.findOne({
-            order: [['createdAt', 'DESC']],
-            paranoid: false, // 包括软删除的记录
-        });
-
-        // 比较两个记录的时间戳并返回最新的记录
-        let latestRecord = null;
-        if (latestUpdate && latestCreated) {
-            const latestUpdateTime = new Date(latestUpdate.updatedAt).getTime();
-            const latestCreateTime = new Date(latestCreated.createdAt).getTime();
-
-            // 根据时间戳选择最新记录
-            latestRecord = latestUpdateTime > latestCreateTime ? latestUpdate : latestCreated;
-        } else {
-            latestRecord = latestUpdate || latestCreated;
+        if (latestTimestamp > timepoint) { // 返回最新数据
+            const blogs = await getAllBlogsWithTags();
+            const tags = await getAllTagsWithPostCounts(false);
+            return {
+                timestamp: latestTimestamp,
+                blogs: blogs,
+                tags:tags
+            }
         }
-
-        if (latestRecord) {
-            logger.info(`Latest record (including soft-deleted): ${JSON.stringify(latestRecord)}`);
-            return latestRecord;
-        } else {
-            logger.info('No records found.');
+        else { // 返回空数据,不更新了
             return null;
         }
     } catch (error) {
         logger.error('Error fetching the latest record:', error);
+        return null;
     }
 };
 
@@ -851,10 +906,15 @@ app.put('/blogs/:blogId/title', AUTH_ENABLED ? authMiddleware : (req, res, next)
 
 // 查询blogs最近更新时间
 app.get('/blogs/get-latest-update-time', async (req, res) => {
-
+    const { latestUpdateTime } = req.query;
+    let timepoint=0;
+    if (latestUpdateTime) {
+        timepoint = Number(latestUpdateTime);
+        if (isNaN(timepoint)) timepoint = 0;
+    }
     try {
-        const latestUpdateTime = await getBlogsLatestUpdateTime();
-        res.status(200).send(latestUpdateTime);
+        const result = await getDataLatestUpdate(timepoint);
+        res.status(200).send(result);
     } catch (error) {
         logger.error(error);
         res.status(500).send({ error: 'Internal Server Error' });
