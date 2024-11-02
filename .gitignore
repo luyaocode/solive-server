@@ -30,15 +30,15 @@ chaos-gomoku.db
 
 
 # 忽略文件夹中的所有内容
-temp/
 temp/*
-uploads/
 uploads/*
 log/*
+blogImgs/*
 
 # 不忽略文件夹本身
 !temp
 !uploads
+!blogImgs
 
 deploy.sh
 *.db
