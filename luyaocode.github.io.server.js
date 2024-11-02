@@ -971,7 +971,7 @@ app.get('/blog', async (req, res) => {
 
 
 // 删除博客：在博客浏览界面
-app.delete('/delblog', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
+app.post('/delblog', AUTH_ENABLED ? authMiddleware : (req, res, next) => next(),async (req, res) => {
     const pwd = req.body['pwd[]'];
     try {
         if (!check(pwd)) {
