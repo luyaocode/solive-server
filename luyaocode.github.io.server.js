@@ -6,6 +6,10 @@ import { v4 as uuidv4 } from "uuid";
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
+import multer from 'multer';
+import fs_extra from 'fs-extra';
+import path from 'path';
+import crypto from 'crypto';
 
 // 日志模块
 import { createLogger } from './logger.js';
@@ -106,7 +110,7 @@ const isParanoidEnabled = (model) => {
 
 
 // 中间件
-const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -791,12 +795,13 @@ const allowedOrigins = ['https://blog.chaosgomoku.fun']; // 前端域名白名�
 
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (!origin) return;
+    // if (!origin) return;
     // if (allowedOrigins.includes(origin)) {
+    if (origin) {
         res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     // }
-
 
      // 设置允许的 HTTP 方法
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -1174,6 +1179,64 @@ app.post('/auth', async (req, res) => {
         res.status(500).send("已超时");
     }
 });
+
+// 图片上传
+// 设置上传目录
+const uploadDir = "blogImgs";
+// 创建 multer 实例
+const storage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        try {
+            // 检查目录是否存在，不存在则创建
+            await fs_extra.ensureDir(uploadDir);
+            cb(null, uploadDir);
+        } catch (error) {
+            cb(error);
+        }
+    },
+    filename: (req, file, cb) => {
+        // 使用摘要算法生成文件名
+        const hash = crypto.createHash('sha256').update(Date.now() + file.originalname).digest('hex');
+        const ext = path.extname(file.originalname); // 获取文件后缀
+        const newFileName = `${hash}${ext}`; // 生成新的文件名，保持后缀
+        cb(null, newFileName);
+    }
+});
+
+// 设置 multer 中间件
+const upload = multer({ storage });
+
+// 图片上传路由
+app.post('/blog/img/upload', AUTH_ENABLED ? authMiddleware : upload.single('editormd-image-file'), async (req, res) => {
+    // req.file 将包含上传的文件信息
+    try {
+        console.log('Uploaded file:', req.file); // 打印文件信息
+        if (req.file) {
+            const filePath = `${req.protocol}://${req.get('host')}/blogImgs/${req.file.filename}`; // 生成完整的文件路径
+            res.json({
+                success: 1, // 上传成功
+                message: '图片上传成功',
+                url: filePath // 返回图片地址
+            });
+        } else {
+            res.status(400).json({
+                success: 0, // 上传失败
+                message: '图片上传失败'
+            });
+        }
+    }
+    catch (error) {
+        console.error(error); // 打印错误信息到控制台
+        res.status(500).json({
+            success: 0,
+            message: '服务器内部错误',
+            error: error.message // 可以根据需要返回更多错误信息
+        });
+    }
+});
+
+// 静态文件服务，提供访问上传的图片
+app.use('/blogImgs', express.static(uploadDir));
 
 // 启动 Express 服务器
 server.listen(port, () => {
