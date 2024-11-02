@@ -110,7 +110,7 @@ const isParanoidEnabled = (model) => {
 
 
 // 中间件
-const AUTH_ENABLED = false; // 是否鉴权，测试关闭，上线开启
+const AUTH_ENABLED = true; // 是否鉴权，测试关闭，上线开启
 // 鉴权中间件
 const authMiddleware = async (req, res, next) => {
     const token = req.cookies[AUTH_TOKEN];
@@ -793,6 +793,7 @@ app.use(cookieParser());
 // 设置跨域
 const allowedOrigins = ['https://blog.chaosgomoku.fun']; // 前端域名白名单
 
+// 允许来自任何域名的连接
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     // if (!origin) return;
@@ -1207,7 +1208,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // 图片上传路由
-app.post('/blog/img/upload', AUTH_ENABLED ? authMiddleware : upload.single('editormd-image-file'), async (req, res) => {
+app.post('/blog/img/upload', (AUTH_ENABLED ? [authMiddleware, upload.single('editormd-image-file')] : upload.single('editormd-image-file')),
+    async (req, res) => {
     // req.file 将包含上传的文件信息
     try {
         console.log('Uploaded file:', req.file); // 打印文件信息
