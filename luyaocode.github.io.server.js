@@ -783,9 +783,9 @@ else if (process.env.NODE_ENV === 'dev') {
     server = http.createServer(app);
 }
 
-// 使用 body-parser 中间件来解析请求体
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+// 设置请求体大小限制为 50MB（默认是 1MB）
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: false }));
 
 // 使用解析cookie的中间件
 app.use(cookieParser());
@@ -837,6 +837,14 @@ const check = (pwd) => {
         }
     }
     return true;
+}
+
+
+// 测试
+if (process.env.NODE_ENV === 'dev') {
+    app.get("/test", (req, res) => {
+        res.status(200).send({ status:'ok',message:"Server is running"});
+    })
 }
 
 // 处理 POST 请求的路由
