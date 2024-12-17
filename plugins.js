@@ -30,7 +30,7 @@ async function getPublicIp() {
     }
 }
 
-function getLocalIP() {
+export function getLocalIP() {
     const interfaces = os.networkInterfaces();
     for (const interfaceName in interfaces) {
         const addresses = interfaces[interfaceName];
