@@ -1,6 +1,7 @@
 import { isJSON } from './plugins.js'
 import JSON5 from 'json5';
-import cors  from 'cors';
+import cors from 'cors';
+import { getLocalIP } from "./plugins.js"
 // 日志模块
 import { createLogger } from './logger.js';
 const logger = await createLogger('server');
@@ -28,8 +29,9 @@ import {
     createWebrtcTransport,
 } from './dist/worker.js';
 await initializeConfig(); // 初始化config
-import { initMq, sendToLianMaiQueue } from './src/service/mq.js';
-await initMq(); // 初始化mq
+// 临时关闭连麦功能
+// import { initMq, sendToLianMaiQueue } from './src/service/mq.js';
+// await initMq(); // 初始化mq
 
 // const createWorker = require('./dist/worker.js');
 function getformatNowTime() {
@@ -1239,6 +1241,8 @@ async function handleStart(socket) {
     socket.emit('connected');
     logger.info(`Client connected: ${socket.id}`);
     socket.emit('message', 'Hello, ' + socket.id);
+    const localIP = getLocalIP();
+    socket.emit("backend_ip", localIP);
     connectedSockets[socket.id] = socket;
 
     // 更新ip表
@@ -1795,13 +1799,14 @@ function handleMeet(socket) {
         }
     });
 
-    socket.on("lianMaiRequest", (request) => {
-        sendToLianMaiQueue(request);
-    });
+    // 临时关闭连麦
+    // socket.on("lianMaiRequest", (request) => {
+    //     sendToLianMaiQueue(request);
+    // });
 
-    socket.on("lianMaiResponse", (response) => {
-        sendToLianMaiQueue(response);
-    });
+    // socket.on("lianMaiResponse", (response) => {
+    //     sendToLianMaiQueue(response);
+    // });
 
     socket.on('disconnecting', () => {
         const currRoom = getMeetRoom(socket);
